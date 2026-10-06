@@ -1,0 +1,8 @@
+{
+  "name": "Affinity — Testing V.1 (Astra)",
+  "description": "Platform kreatif periklanan real estate untuk menghasilkan visual lifestyle editorial, blueprint carousel, UGC video prompt, dan caption dengan menjaga konsistensi struktur master properti.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
