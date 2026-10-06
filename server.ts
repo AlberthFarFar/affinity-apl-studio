@@ -144,7 +144,7 @@ async function uploadToFalStorage(imageData: string): Promise<string> {
     return url;
   }
 
-  return imageData;
+  throw new Error('Image reference must be a public HTTP(S) URL or a valid data URL that can be uploaded to fal Storage.');
 }
 
 // -------------------------------------------------------------
@@ -338,10 +338,19 @@ Lakukan analisis mendalam dan hasilkan JSON terstruktur dengan format persis ber
 
 Gunakan Bahasa Indonesia profesional. Keluarkan HANYA JSON tanpa pengantar.`;
 
+      // Send the actual property pixels to the vision-capable model.  The old
+      // implementation built `images` but never attached them to the request,
+      // so it produced generic text-only "architectural analysis".
+      const imageUrls = await Promise.all(images.map((image) => uploadToFalStorage(image)));
+      const analysisContent: any[] = [
+        { type: 'text', text: prompt },
+        ...imageUrls.map((url) => ({ type: 'image_url', image_url: { url } })),
+      ];
+
       const gptReply = await callGPTViaFal({
         messages: [
           { role: 'system', content: 'You are an architectural VLM evaluator and real estate marketing expert. Always reply with valid JSON.' },
-          { role: 'user', content: prompt },
+          { role: 'user', content: analysisContent },
         ],
         model: 'openai/gpt-5',
         responseFormatJson: true,
@@ -576,9 +585,11 @@ Keluarkan HANYA JSON.`;
         });
       }
 
-      // Requirement #2 & #3: REFERENCE PRIORITY
-      // Image 1: LOCKED PROPERTY FACADE (Architectural source of truth)
-      const primaryFacade = lockedFacadeUrl || propertyImage || (propertyImages.length > 0 ? propertyImages[0] : null);
+      // Reference priority is deliberate and must not be changed by a crop:
+      // Image 1 is always the full original master facade (architectural truth).
+      // A composition crop is a separate framing aid only.
+      const primaryFacade = propertyImage || (propertyImages.length > 0 ? propertyImages[0] : null);
+      const compositionCrop = lockedFacadeUrl && lockedFacadeUrl !== primaryFacade ? lockedFacadeUrl : null;
 
       if (!primaryFacade || typeof primaryFacade !== 'string') {
         return res.status(400).json({
@@ -592,10 +603,15 @@ Keluarkan HANYA JSON.`;
       fal.config({ credentials: currentKey });
 
       // Build ordered reference array strictly:
-      // image_urls[0] = LOCKED PROPERTY FACADE
-      // image_urls[1] = STYLE ONLY (if provided)
-      // image_urls[2] = TALENT ONLY (if provided)
+      // image_urls[0] = FULL MASTER FACADE (architectural source of truth)
+      // image_urls[1] = COMPOSITION CROP (framing only, if provided)
+      // image_urls[2] = STYLE ONLY (if provided)
+      // image_urls[3] = TALENT ONLY (if provided)
       const rawReferenceList: string[] = [primaryFacade];
+
+      if (compositionCrop) {
+        rawReferenceList.push(compositionCrop);
+      }
 
       const styleRef = Array.isArray(styleImages) && styleImages.length > 0 ? styleImages[0] : null;
       if (styleRef && typeof styleRef === 'string') {
@@ -606,7 +622,7 @@ Keluarkan HANYA JSON.`;
         rawReferenceList.push(talentImage);
       }
 
-      console.log(`[Image Gen] Reference images count: ${rawReferenceList.length} (Image 1: Locked Facade, Has Style: ${Boolean(styleRef)}, Has Talent: ${Boolean(talentImage)})`);
+      console.log(`[Image Gen] Reference images count: ${rawReferenceList.length} (Image 1: Full Master Facade, Has Crop: ${Boolean(compositionCrop)}, Has Style: ${Boolean(styleRef)}, Has Talent: ${Boolean(talentImage)})`);
 
       // Upload references to fal storage to get clean public CDN URLs
       const finalImageUrls: string[] = [];
@@ -614,10 +630,17 @@ Keluarkan HANYA JSON.`;
         const rawImg = rawReferenceList[i];
         try {
           const url = await uploadToFalStorage(rawImg);
-          finalImageUrls.push(url || rawImg);
+          if (!url || !/^https?:\/\//.test(url)) {
+            throw new Error('fal Storage did not return a public HTTP(S) URL.');
+          }
+          finalImageUrls.push(url);
         } catch (uploadErr) {
-          console.warn(`[Image Gen] Failed to upload reference ${i} to fal storage, using raw:`, uploadErr);
-          finalImageUrls.push(rawImg);
+          console.warn(`[Image Gen] Failed to upload reference ${i} to fal storage:`, uploadErr);
+          return res.status(422).json({
+            success: false,
+            error: 'REFERENCE_STORAGE_UPLOAD_FAILED',
+            message: `Reference image ${i + 1} could not be converted to a public fal Storage URL. Generation was not submitted.`,
+          });
         }
       }
 
@@ -630,7 +653,13 @@ Keluarkan HANYA JSON.`;
       const targetRes = validResolutions.includes(resolution) ? resolution : '2K';
 
       // Requirement #6: Sanitize scene prompt — remove conflicting camera angle instructions
-      let lifestyleAddition = (scenePrompt || prompt || 'Indonesian family enjoying warm golden hour on the porch and driveway.').trim();
+      // Keep the creative blueprint prompt in the final request.  Previously
+      // `scenePrompt` always won, silently discarding `nano_banana_prompt`.
+      const blueprintPrompt = (prompt || '').trim();
+      const sceneBrief = (scenePrompt || '').trim();
+      let lifestyleAddition = [blueprintPrompt, sceneBrief ? `[SCENE FOCUS]\n${sceneBrief}` : '']
+        .filter(Boolean)
+        .join('\n\n') || 'Indonesian family enjoying warm golden hour on the porch and driveway.';
       lifestyleAddition = lifestyleAddition
         .replace(/\b(drone angle|aerial view|low angle|extreme low angle|wide architectural reveal|alternate perspective|new viewpoint|backyard view|side elevation|rear view)\b/gi, 'same eye-level perspective as Image 1')
         .trim();
@@ -647,9 +676,12 @@ Keluarkan HANYA JSON.`;
       // Stage 2: Identitas Properti & Peran Setiap Referensi
       const propertyTitle = req.body?.project?.name || req.body?.propertyId || 'Master Property';
       const refVersion = req.body?.referenceVersion || 1;
+      const cropIndex = compositionCrop ? 2 : null;
+      const styleIndex = styleRef ? (compositionCrop ? 3 : 2) : null;
+      const talentIndex = talentImage ? (compositionCrop ? (styleRef ? 4 : 3) : (styleRef ? 3 : 2)) : null;
       const stage2 = `[STAGE 2: PROPERTY IDENTITY & REFERENCE ROLES]
-- Image 1 (PRIMARY): PROPERTY_REFERENCE for "${propertyTitle}" (Version v${refVersion}). This is the IMMUTABLE architectural ground truth.
-${styleRef ? '- Image 2: STYLE_REFERENCE (Guidance for atmosphere, lighting mood, color palette ONLY. NEVER alter building shape).\n' : ''}${talentImage ? `- Image ${styleRef ? '3' : '2'}: TALENT_REFERENCE (Human talent casting guidance ONLY).\n` : ''}- Active Viewpoint: Eye-level perspective matching Image 1.`;
+- Image 1 (PRIMARY): FULL_MASTER_FACADE for "${propertyTitle}" (Version v${refVersion}). This is the IMMUTABLE architectural ground truth.
+${cropIndex ? `- Image ${cropIndex}: COMPOSITION_CROP (Framing and visible-area guidance ONLY. It must never replace, redefine, or narrow the architectural ground truth in Image 1).\n` : ''}${styleIndex ? `- Image ${styleIndex}: STYLE_REFERENCE (Guidance for atmosphere, lighting mood, color palette ONLY. NEVER alter building shape).\n` : ''}${talentIndex ? `- Image ${talentIndex}: TALENT_REFERENCE (Human talent casting guidance ONLY).\n` : ''}- Active Viewpoint: Eye-level perspective matching Image 1.`;
 
       // Stage 3: Elemen yang Dilindungi
       const archElems = req.body?.architecturalElements || {};
@@ -781,6 +813,7 @@ ${stage6}`;
         slideIndex,
         promptUsed: finalUserPrompt,
         lockedFacadeUsed: finalImageUrls[0],
+        compositionCropUsed: compositionCrop ? finalImageUrls[1] : null,
       });
     } catch (err: any) {
       console.error('[Image Gen] Error in generation route:', err);

@@ -45,7 +45,6 @@ import {
 } from '../types';
 import { createLockedFacadeCrop, CropPosition } from '../utils/cropUtils';
 import { renderPosterToDataUrl } from '../utils/canvasRenderer';
-import { compositeStrictPreserve } from '../utils/architecturalGuard';
 import {
   getSlideOutputVersions,
   saveSlideOutputVersion,
@@ -309,7 +308,8 @@ export const Step3Carousel: React.FC<Step3CarouselProps> = ({
         body: JSON.stringify({
           propertyImages: allPropertyImages,
           propertyImage,
-          lockedFacadeUrl: lockedFacadeUrl || propertyImage,
+          // Full master remains Image 1. The crop is passed separately for framing only.
+          lockedFacadeUrl,
           styleImages: styleImage ? [styleImage] : [],
           talentImage,
           aspectRatio,
@@ -343,24 +343,9 @@ export const Step3Carousel: React.FC<Step3CarouselProps> = ({
 
       let finalImageUrl = json.imageUrl;
 
-      // In STRICT PRESERVE mode: Execute real physical compositing pipeline
-      // Composites the untouched building facade from original reference crop over the AI generated atmosphere
-      if (facadeMode === 'strict') {
-        try {
-          const composited = await compositeStrictPreserve({
-            originalRefUrl: lockedFacadeUrl || propertyImage,
-            generatedUrl: finalImageUrl,
-            mask: currentMask,
-            aspectRatio,
-            feather: currentMask.featherPx || 12,
-          });
-          if (composited) {
-            finalImageUrl = composited;
-          }
-        } catch (compErr) {
-          console.warn('[Architectural Guard] Compositing error, using raw generated:', compErr);
-        }
-      }
+      // Do not overwrite the model output with pixels from the source facade.
+      // That made paid generations look identical to the input and biased QA.
+      // Strict mode is enforced by the request guard and independent QA below.
 
       setScenes((prev) => ({ ...prev, [slideIdx]: finalImageUrl }));
 
@@ -382,7 +367,7 @@ export const Step3Carousel: React.FC<Step3CarouselProps> = ({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            referenceImageUrl: lockedFacadeUrl || propertyImage,
+            referenceImageUrl: propertyImage,
             generatedImageUrl: finalImageUrl,
             referenceVersion: propertyMeta?.referenceVersion || 1,
           }),
@@ -418,7 +403,8 @@ export const Step3Carousel: React.FC<Step3CarouselProps> = ({
         imageUrl: finalImageUrl,
         posterUrl: posterDataUrl,
         guardMode: facadeMode,
-        guardStatus: evaluatedQA?.status || (facadeMode === 'strict' ? 'PASS' : 'NOT_VALIDATED'),
+        // Fail closed: a strict prompt is not evidence of a passed visual check.
+        guardStatus: evaluatedQA?.status || 'NOT_VALIDATED',
         qaResult: evaluatedQA,
         timestamp: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
         note: isStricterRegen
@@ -499,12 +485,11 @@ export const Step3Carousel: React.FC<Step3CarouselProps> = ({
   // 5. Kling 3.0 Pro Animation Handlers (Protected with Architectural Consistency Guard)
   const handleOpenKlingPanel = (slideIdx: number) => {
     const qa = visualQA[slideIdx];
-    const isStrict = facadeMode === 'strict';
     const isPass = qa?.pass;
 
-    // Requirement #7: Guard before sending to Kling video pipeline
-    // If not verified PASS and not in Strict Preserve mode, require user acknowledgment
-    if (qa && !isPass && !isStrict) {
+    // Video is never sent to a paid model unless the source image has an
+    // explicit Visual QA PASS. A strict prompt alone is insufficient proof.
+    if (!isPass) {
       setKlingWarningSlide(slideIdx);
       return;
     }
