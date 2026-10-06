@@ -231,7 +231,7 @@ export const Step1Input: React.FC<Step1InputProps> = ({
 
       {/* Fal Storage Uploading Indicator / Error Banner */}
       {isUploadingToStorage && (
-        <div className="bg-teal-50 border border-teal-200 rounded-xl p-3.5 flex items-center gap-3 text-teal-900 shadow-xs animate-pulse">
+        <div role="status" aria-live="polite" className="bg-teal-50 border border-teal-200 rounded-xl p-3.5 flex items-center gap-3 text-teal-900 shadow-xs animate-pulse">
           <Loader2 className="w-5 h-5 text-teal-600 animate-spin shrink-0" />
           <div className="text-xs">
             <p className="font-semibold text-teal-950">Mengunggah ke fal Storage Cloud CDN</p>
@@ -241,7 +241,7 @@ export const Step1Input: React.FC<Step1InputProps> = ({
       )}
 
       {uploadError && (
-        <div className="bg-rose-50 border border-rose-200 rounded-xl p-3.5 flex items-center gap-3 text-rose-900 shadow-xs">
+        <div role="alert" className="bg-rose-50 border border-rose-200 rounded-xl p-3.5 flex items-center gap-3 text-rose-900 shadow-xs">
           <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
           <div className="text-xs">
             <p className="font-semibold text-rose-950">Gagal Mengunggah ke Storage</p>
@@ -285,10 +285,7 @@ export const Step1Input: React.FC<Step1InputProps> = ({
               Sumber kebenaran fasad &amp; site plan. Struktur ini dikunci 100%.
             </p>
 
-            <div
-              onClick={() => propInputRef.current?.click()}
-              className="border-2 border-dashed border-teal-300/80 bg-teal-50/20 hover:bg-teal-50/50 rounded-xl p-4 min-h-[170px] flex flex-col items-center justify-center text-center cursor-pointer transition-all group relative overflow-hidden"
-            >
+            <div className="border-2 border-dashed border-teal-300/80 bg-teal-50/20 hover:bg-teal-50/50 rounded-xl p-4 min-h-[170px] flex flex-col items-center justify-center text-center transition-all group relative overflow-hidden">
               <input
                 ref={propInputRef}
                 type="file"
@@ -299,7 +296,12 @@ export const Step1Input: React.FC<Step1InputProps> = ({
               />
 
               {propertyImages.length === 0 ? (
-                <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => propInputRef.current?.click()}
+                  disabled={isUploadingToStorage}
+                  className="space-y-2 rounded-lg px-3 py-2 text-center disabled:cursor-not-allowed disabled:opacity-60"
+                >
                   <div className="w-10 h-10 mx-auto rounded-full bg-teal-100 flex items-center justify-center text-teal-700 group-hover:scale-105 transition-transform">
                     <Upload className="w-5 h-5" />
                   </div>
@@ -309,7 +311,7 @@ export const Step1Input: React.FC<Step1InputProps> = ({
                     </span>
                     <p className="text-[10px] text-slate-500 mt-0.5">JPG, PNG, atau WebP</p>
                   </div>
-                </div>
+                </button>
               ) : (
                 <div className="w-full space-y-2">
                   <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1">
@@ -370,9 +372,14 @@ export const Step1Input: React.FC<Step1InputProps> = ({
                     <span className="font-semibold text-teal-800">
                       {propertyImages.length} foto fasad (PROPERTY_REFERENCE)
                     </span>
-                    <span className="text-teal-700 hover:underline font-medium">
+                    <button
+                      type="button"
+                      onClick={() => propInputRef.current?.click()}
+                      disabled={isUploadingToStorage}
+                      className="text-teal-700 hover:underline font-medium disabled:cursor-not-allowed disabled:opacity-60"
+                    >
                       + Tambah foto
-                    </span>
+                    </button>
                   </div>
                 </div>
               )}
@@ -394,10 +401,7 @@ export const Step1Input: React.FC<Step1InputProps> = ({
               Referensi pencahayaan, tone warna, komposisi sudut editorial.
             </p>
 
-            <div
-              onClick={() => styleInputRef.current?.click()}
-              className="border-2 border-dashed border-slate-300 hover:border-teal-400 bg-slate-50/40 hover:bg-slate-50 rounded-xl p-4 min-h-[170px] flex flex-col items-center justify-center text-center cursor-pointer transition-all group"
-            >
+            <div className="border-2 border-dashed border-slate-300 hover:border-teal-400 bg-slate-50/40 hover:bg-slate-50 rounded-xl p-4 min-h-[170px] flex flex-col items-center justify-center text-center transition-all group">
               <input
                 ref={styleInputRef}
                 type="file"
@@ -408,7 +412,12 @@ export const Step1Input: React.FC<Step1InputProps> = ({
               />
 
               {styleImages.length === 0 ? (
-                <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => styleInputRef.current?.click()}
+                  disabled={isUploadingToStorage}
+                  className="space-y-2 rounded-lg px-3 py-2 text-center disabled:cursor-not-allowed disabled:opacity-60"
+                >
                   <div className="w-10 h-10 mx-auto rounded-full bg-slate-100 flex items-center justify-center text-slate-500 group-hover:scale-105 transition-transform">
                     <Wand2 className="w-5 h-5" />
                   </div>
@@ -418,7 +427,7 @@ export const Step1Input: React.FC<Step1InputProps> = ({
                     </span>
                     <p className="text-[10px] text-slate-500 mt-0.5">Golden hour, editorial, sudut drone</p>
                   </div>
-                </div>
+                </button>
               ) : (
                 <div className="w-full space-y-2">
                   <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1">
@@ -461,9 +470,14 @@ export const Step1Input: React.FC<Step1InputProps> = ({
                     <span className="font-semibold text-slate-700">
                       {styleImages.length} referensi gaya (STYLE_REFERENCE)
                     </span>
-                    <span className="text-teal-700 hover:underline font-medium">
+                    <button
+                      type="button"
+                      onClick={() => styleInputRef.current?.click()}
+                      disabled={isUploadingToStorage}
+                      className="text-teal-700 hover:underline font-medium disabled:cursor-not-allowed disabled:opacity-60"
+                    >
                       + Tambah gaya
-                    </span>
+                    </button>
                   </div>
                 </div>
               )}
@@ -645,6 +659,8 @@ export const Step1Input: React.FC<Step1InputProps> = ({
             <input
               type="text"
               value={project.contactPhone}
+              inputMode="tel"
+              autoComplete="tel"
               onChange={(e) => setProject({ ...project, contactPhone: e.target.value })}
               className="w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-600 bg-white"
               placeholder="Cth: 0822-8988-3888"

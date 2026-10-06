@@ -223,7 +223,7 @@ export default function App() {
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
         {/* Global Error Banner if any */}
         {globalError && (
-          <div className="mb-6 p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs sm:text-sm flex items-center justify-between gap-3 shadow-xs">
+          <div role="alert" className="mb-6 p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs sm:text-sm flex items-center justify-between gap-3 shadow-xs">
             <div className="flex items-center gap-2">
               <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
               <span>{globalError}</span>
@@ -231,6 +231,7 @@ export default function App() {
             <button
               onClick={() => setGlobalError(null)}
               className="text-rose-500 hover:text-rose-700 font-bold"
+              aria-label="Tutup pesan kesalahan"
             >
               ×
             </button>

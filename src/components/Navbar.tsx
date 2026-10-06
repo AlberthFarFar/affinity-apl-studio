@@ -105,7 +105,9 @@ export const Navbar: React.FC<NavbarProps> = ({
         <button
           onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
           className="md:hidden p-2 text-slate-600 hover:text-slate-900 rounded-lg hover:bg-slate-100"
-          aria-label="Toggle Menu"
+          aria-label={mobileMenuOpen ? 'Tutup navigasi' : 'Buka navigasi'}
+          aria-expanded={mobileMenuOpen}
+          aria-controls="mobile-workflow-navigation"
         >
           {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
         </button>
@@ -113,7 +115,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
       {/* Mobile Drawer */}
       {mobileMenuOpen && (
-        <div className="md:hidden border-t border-slate-200 bg-white px-4 pt-2 pb-4 space-y-1 shadow-lg">
+        <div id="mobile-workflow-navigation" className="md:hidden border-t border-slate-200 bg-white px-4 pt-2 pb-4 space-y-1 shadow-lg">
           {steps.map((step) => {
             const isCompleted = step.id < currentStep;
             const isCurrent = step.id === currentStep;
