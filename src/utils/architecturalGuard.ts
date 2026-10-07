@@ -57,7 +57,7 @@ export interface VisualQAReport {
  * EXACT CORE INSTRUCTION REQUIRED BY SECTION 5
  */
 export const CORE_PRESERVATION_PROMPT =
-  'Edit the supplied property photograph; do not generate a replacement building. The designated property reference is the architectural source of truth. Preserve the visible building geometry, roof silhouette, floor count, proportions, openings, columns, balconies, fence, entrance, materials, and viewpoint. Style references may influence atmosphere and presentation only, never architecture. Change only the explicitly allowed elements. Do not invent hidden sides or redesign the property. If the requested scene conflicts with architectural preservation, preserve the property and simplify the scene.';
+  'Treat the supplied reference as architectural/product evidence, not a final composition template. Preserve the recognizable product identity: defining massing, proportions, roof geometry, entrances, opening rhythm, signature facade features, and important materials. Reconstruct that same product in a newly composed scene. Do not copy source pixels or automatically preserve its camera angle, crop, lighting, sky, background, landscaping, people, vehicles, or composition.';
 
 /**
  * Detects creative instructions that conflict with physical architecture preservation
@@ -69,13 +69,7 @@ export function detectCreativeConflicts(
   const conflicts: string[] = [];
   const lower = (userInstructions || '').toLowerCase();
 
-  // Rule: Do not ask for sides not in reference (drone, rear, side, interior, extra floors)
-  if (lower.match(/\b(drone|aerial view|tampak atas|burung|bird eye)\b/)) {
-    conflicts.push('Sudut pandang aerial / drone tidak memiliki referensi foto asli.');
-  }
-  if (lower.match(/\b(rear|belakang|backyard|halaman belakang)\b/)) {
-    conflicts.push('Tampak belakang tidak terlihat pada foto referensi utama.');
-  }
+  // Camera and viewpoint are creative variables, not identity conflicts.
   if (lower.match(/\b(interior|dalam rumah|living room|kamar tidur)\b/)) {
     conflicts.push('Area interior membutuhkan foto referensi interior terpisah.');
   }
@@ -85,7 +79,7 @@ export function detectCreativeConflicts(
 
   const hasConflict = conflicts.length > 0;
   const resolutionNote = hasConflict
-    ? `Instruksi yang bertentangan disederhanakan: Mengabaikan modifikasi struktural dan mempertahankan sudut pandang referensi foto asli (${meta?.activeViewpoint || 'front_facade'}).`
+    ? 'Instruksi yang bertentangan disederhanakan: perubahan struktural diabaikan, sementara arahan visual tetap boleh memakai komposisi baru.'
     : 'Tidak ada konflik struktural terdeteksi.';
 
   return { hasConflict, conflicts, resolutionNote };
@@ -124,8 +118,8 @@ export function buildGuardedPrompt(params: {
 
   // 2. Identitas properti dan peran setiap referensi
   const section2 = `[STAGE 2: REFERENCE ROLES & GROUND TRUTH]
-- Image 1 (PRIMARY): PROPERTY_REFERENCE (ID: ${propertyMeta.propertyId}, Ref Version: v${propertyMeta.referenceVersion}). This is the IMMUTABLE architectural ground truth.
-${styleReferenceAttached ? '- Image 2: STYLE_REFERENCE (Guidance for atmosphere, lighting mood, color palette ONLY. NEVER alter building shape).\n' : ''}${talentReferenceAttached ? `- Image ${styleReferenceAttached ? '3' : '2'}: TALENT_REFERENCE (Human talent casting guidance ONLY).\n` : ''}- Active Viewpoint: ${propertyMeta.activeViewpoint}.`;
+- Image 1 (PRIMARY): PROPERTY_REFERENCE (ID: ${propertyMeta.propertyId}, Ref Version: v${propertyMeta.referenceVersion}). It is product evidence, not a composition target.
+${styleReferenceAttached ? '- Image 2: STYLE_REFERENCE (Guidance for atmosphere, lighting mood, color palette ONLY. NEVER alter building shape).\n' : ''}${talentReferenceAttached ? `- Image ${styleReferenceAttached ? '3' : '2'}: TALENT_REFERENCE (Human talent casting guidance ONLY).\n` : ''}- Source viewpoint is evidence only; use a new camera and composition when required by the slide direction.`;
 
   // 3. Elemen yang dilindungi (Specific to actual property photo)
   const elems = propertyMeta.architecturalElements;
@@ -134,8 +128,7 @@ ${styleReferenceAttached ? '- Image 2: STYLE_REFERENCE (Guidance for atmosphere,
 - Roof Silhouette & Geometry: ${elems.roofSilhouette}
 - Window & Door Arrangement: ${elems.windowDoorArrangement}
 - Columns, Balconies & Openings: ${elems.columnsAndBalconies}
-- Facade Materials & Palette: ${elems.materialsAndColors}
-- Viewpoint & Perspective: ${elems.viewpointPerspective}`;
+- Facade Materials & Palette: ${elems.materialsAndColors}`;
 
   // 4. Perubahan yang diizinkan
   const section4 = `[STAGE 4: ALLOWED MODIFICATIONS]
@@ -154,19 +147,18 @@ ${sanitizedBrief}`;
   // 6. Suasana, pencahayaan, dan komposisi
   const section6 = `[STAGE 6: ATMOSPHERE & LIGHTING COMPOSITION]
 ${atmosphereAndLighting}
-DO NOT RENDER ANY TEXT, TYPOGRAPHY, LOGOS, OR GRAPHICS INTO THE PHOTOGRAPHIC IMAGE. Final image must remain visibly identical to the physical property in Image 1.`;
+Use the visual direction to create a distinctly new camera, framing, environment, and composition. DO NOT RENDER ANY TEXT, TYPOGRAPHY, LOGOS, OR GRAPHICS into the image.`;
 
   // Strict regeneration prefix if prior attempt failed QA
   const regenPrefix = isStricterRegen
     ? `[CRITICAL REGENERATION OVERRIDE]
-The previous generation was REJECTED because the architectural facade diverged from Image 1.
-You must strictly preserve the building geometry in Image 1 without any deviation.
-Do not redesign, do not substitute another house, do not add/remove facade elements.\n\n`
+The previous generation was REJECTED because core product identity drifted.
+Restore the protected architectural identity without reverting to the source composition.\n\n`
     : '';
 
   const fullPrompt = `${regenPrefix}${section1}\n\n${section2}\n\n${section3}\n\n${section4}\n\n${section5}\n\n${section6}`;
 
-  const systemPrompt = `You are performing constrained photographic editing under the AFFINITY ARCHITECTURAL CONSISTENCY GUARD. Image 1 is immutable physical architectural ground truth for property ${propertyMeta.propertyId}. Maintain exact roof geometry, massing, floor count, door/window arrangements, column structures, and materials. Do not reconstruct or redesign the building. If creative scene requests conflict with architectural preservation, preserve the property geometry and simplify the creative scene.`;
+  const systemPrompt = `You are operating the AFFINITY ARCHITECTURAL CONSISTENCY GUARD for property ${propertyMeta.propertyId}. Preserve hard product identity—roof geometry, massing, floor count, opening relationships, columns, and signature materials—but treat Image 1 as evidence rather than an immutable photograph. Reconstruct the product in a new composition. Camera, crop, lighting, sky, landscaping, people, vehicles, and context are transformable.`;
 
   return {
     prompt: fullPrompt,

@@ -312,6 +312,11 @@ export const Step3Carousel: React.FC<Step3CarouselProps> = ({
           lockedFacadeUrl,
           styleImages: styleImage ? [styleImage] : [],
           talentImage,
+          project,
+          masterAnalysis,
+          propertyMeta,
+          architecturalElements: propertyMeta?.architecturalElements,
+          editableAreas: propertyMeta?.editableAreas,
           aspectRatio,
           resolution,
           prompt: bp.nano_banana_prompt || bp.shot,
@@ -385,7 +390,7 @@ export const Step3Carousel: React.FC<Step3CarouselProps> = ({
           } else {
             setStatusMessage({
               type: 'success',
-              text: `Slide ${slideIdx + 1} berhasil dirender! Fasad terverifikasi identik (PASS - Skor QA: ${qaJson.qa.overall_score}%).`,
+              text: `Slide ${slideIdx + 1} berhasil dirender! Identitas arsitektur terverifikasi (PASS - Skor QA: ${qaJson.qa.overall_score}%).`,
             });
           }
         }

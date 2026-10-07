@@ -307,6 +307,7 @@ Analisis proyek properti "${project?.name || 'Properti Hunian Modern'}":
 
 Lakukan analisis mendalam dan hasilkan JSON terstruktur dengan format persis berikut:
 {
+  "reference_type": "BUILDING_EXTERIOR | SHOPHOUSE | MASTERPLAN_SITEPLAN | ENVIRONMENT_STREETSCAPE | INTERIOR | UNKNOWN",
   "property_identity": "Nama dan deskripsi identitas bangunan",
   "architectural_style": "Contoh: Modern Tropical / Contemporary Luxury",
   "target_audience": "Profil target pembeli / demografis",
@@ -327,6 +328,9 @@ Lakukan analisis mendalam dan hasilkan JSON terstruktur dengan format persis ber
       "Kondisi langit, awan, dan tone fotografi sinematik"
     ]
   },
+  "hard_identity_constraints": ["Elemen produk/spasial yang harus tetap recognizable"],
+  "soft_scene_attributes": ["Elemen adegan yang boleh dibangun ulang"],
+  "transformation_policy": { "productIdentityStrength": 0.90, "sceneSimilarity": 0.25, "creativeTransformation": 0.75 },
   "visual_style": "Cinematic Editorial Real Estate",
   "brand_tone": "Prestigious, Warm, Exclusive, Aspirational",
   "campaign_angle": "Kenyamanan hidup keluarga modern di kawasan terpadu prestisius",
@@ -347,6 +351,7 @@ Lakukan analisis mendalam dan hasilkan JSON terstruktur dengan format persis ber
   "architecturalSummary": "Deskripsi singkat 2 kalimat mengenai karakter fisik bangunan dan daya tarik lifestyle."
 }
 
+Klasifikasikan referensi sebelum menganalisis. Untuk BUILDING_EXTERIOR/SHOPHOUSE, hard constraints meliputi lantai, massing, atap, entrance, rhythm bukaan, dan signature facade. Untuk MASTERPLAN_SITEPLAN/ENVIRONMENT_STREETSCAPE, hard constraints meliputi hirarki jalan, sirkulasi, hubungan cluster/blok, ruang terbuka utama, landmark, dan hirarki spasial. Kamera, crop, komposisi, cuaca, cahaya, vegetasi, orang, kendaraan, foreground, dan konteks lingkungan adalah soft scene attributes—bukan identitas.
 Gunakan Bahasa Indonesia profesional. Keluarkan HANYA JSON tanpa pengantar.`;
 
       // Send the actual property pixels to the vision-capable model.  The old
@@ -444,6 +449,9 @@ DATA MASTER PROPERTI:
 - USP: ${(masterAnalysis?.property_usp || []).join(', ') || project?.features || 'Fasilitas premium'}
 - Arah Visual: ${visualStyle}
 - Casting: ${casting}
+- Tipe Referensi: ${masterAnalysis?.reference_type || 'BUILDING_EXTERIOR'}
+- HARD IDENTITY CONSTRAINTS: ${(masterAnalysis?.hard_identity_constraints || masterAnalysis?.locked || []).join('; ')}
+- SOFT SCENE ATTRIBUTES: ${(masterAnalysis?.soft_scene_attributes || masterAnalysis?.flexible || []).join('; ')}
 
 ATURAN STRUKTUR SETIAP SLIDE:
 Setiap slide harus memiliki:
@@ -459,9 +467,8 @@ Setiap slide harus memiliki:
 - lighting: Kondisi cahaya (golden hour, soft morning, twilight)
 - facade_preservation_instruction: Instruksi eksplisit untuk mempertahankan fasad fisik rumah asli
 - nano_banana_prompt: PROMPT BAHASA INGGRIS YANG SANGAT KONSISTEN DENGAN STRUKTUR BERIKUT:
-ARCHITECTURAL GROUND TRUTH
-Use the supplied property reference images as the exact architectural ground truth.
-Preserve the recognizable building identity and geometry exactly.
+PRODUCT IDENTITY, NOT PHOTO COPYING
+Treat supplied property references as architectural/product evidence, never as a final composition template. First preserve the recognizable product identity, then reconstruct it in a genuinely new scene directed by this slide's visual direction.
 
 IMMUTABLE
 Preserve:
@@ -472,7 +479,7 @@ Preserve:
 - balconies
 - structural columns
 - facade openings
-- permanent architectural materials
+- signature permanent architectural materials
 - floor count
 - overall massing
 
@@ -486,6 +493,7 @@ Do not:
 - add new balconies
 - replace the property with a similar-looking building
 - alter the architectural proportions
+- copy the source camera angle, crop, composition, background, landscaping, sky, or lighting by default
 
 EDITABLE
 May modify:
@@ -498,9 +506,10 @@ May modify:
 - sky
 - atmosphere
 - photographic treatment
+- camera position, height, focal length, framing, and advertising composition
 
 SCENE
-[Deskripsi adegan visual spesifik untuk slide ini dengan talent ${casting} di teras/halaman rumah]
+[Deskripsi adegan visual spesifik untuk slide ini. Make a new camera and advertising composition appropriate to the requested Style/Lifestyle/Carousel Concept; use talent ${casting} when relevant.]
 
 PHOTOGRAPHY
 premium photorealistic real-estate editorial photography, realistic Indonesian environment when applicable, believable scale, physically plausible lighting, no artificial architectural redesign.
@@ -543,7 +552,7 @@ Keluarkan HANYA JSON.`;
         camera_direction: s.camera_direction || 'Eye-level 35mm lens medium wide',
         lighting: s.lighting || 'Warm golden hour sunlight',
         facade_preservation_instruction: s.facade_preservation_instruction || 'Kunci geometri dinding, atap, dan jendela rumah master secara akurat.',
-        nano_banana_prompt: s.nano_banana_prompt || `ARCHITECTURAL GROUND TRUTH\nUse the supplied property reference images as the exact architectural ground truth.\nPreserve the recognizable building identity and geometry exactly.\n\nIMMUTABLE\nPreserve:\n- roof geometry\n- wall proportions\n- windows\n- doors\n- balconies\n- structural columns\n- facade openings\n- permanent architectural materials\n- floor count\n- overall massing\n\nFORBIDDEN\nDo not:\n- redesign the house\n- add or remove floors\n- invent windows\n- move doors\n- change roof geometry\n- add new balconies\n- replace the property with a similar-looking building\n- alter the architectural proportions\n\nEDITABLE\nMay modify:\n- people\n- vehicle\n- vegetation\n- weather\n- lighting\n- outdoor furniture\n- sky\n- atmosphere\n- photographic treatment\n\nSCENE\n${s.scene_description || 'Joyful Indonesian family enjoying an afternoon on the paved driveway and porch of the residence'}\n\nPHOTOGRAPHY\npremium photorealistic real-estate editorial photography, realistic Indonesian environment when applicable, believable scale, physically plausible lighting, no artificial architectural redesign.`,
+        nano_banana_prompt: s.nano_banana_prompt || `PRODUCT IDENTITY, NOT PHOTO COPYING\nTreat the supplied reference as architectural evidence, not a composition template. Reconstruct the recognizable property in a genuinely new scene.\n\nHARD IDENTITY CONSTRAINTS\n${(masterAnalysis?.hard_identity_constraints || masterAnalysis?.locked || ['floor count', 'primary massing', 'roof geometry', 'entrance and opening rhythm', 'signature facade features']).map((v: string) => `- ${v}`).join('\n')}\n\nSOFT SCENE ATTRIBUTES — FREE TO REINVENT\n${(masterAnalysis?.soft_scene_attributes || masterAnalysis?.flexible || ['camera angle and crop', 'lighting and weather', 'landscaping and context', 'people, vehicles, and activity']).map((v: string) => `- ${v}`).join('\n')}\n\nSCENE\n${s.scene_description || 'Joyful Indonesian family enjoying an afternoon in a newly composed editorial setting around the residence'}\n\nPHOTOGRAPHY\nCreate a new camera, framing, lighting, landscaping, and advertising composition appropriate to the slide. Do not copy source pixels or source composition.`,
         shot: s.scene_description || 'Interaksi santai keluarga di teras depan',
         badge: idx === 0 ? 'COVER' : idx === slideCount - 1 ? 'CTA' : undefined,
       }));
@@ -606,7 +615,9 @@ Keluarkan HANYA JSON.`;
         ? masterAIImages
         : propertyImages;
       const primaryFacade = masterAIImage || propertyImage || (normalizedMasterImages.length > 0 ? normalizedMasterImages[0] : null);
-      const compositionCrop = lockedFacadeUrl && lockedFacadeUrl !== primaryFacade ? lockedFacadeUrl : null;
+      // Do not submit the UI crop as an additional image reference: it repeats
+      // source framing and makes the generation model copy the photograph.
+      const compositionCrop = null;
 
       if (!primaryFacade || typeof primaryFacade !== 'string') {
         return res.status(400).json({
@@ -663,64 +674,54 @@ Keluarkan HANYA JSON.`;
       const validResolutions = ['1K', '2K', '4K'];
       const targetRes = validResolutions.includes(resolution) ? resolution : '2K';
 
-      // Requirement #6: Sanitize scene prompt — remove conflicting camera angle instructions
-      // Keep the creative blueprint prompt in the final request.  Previously
-      // `scenePrompt` always won, silently discarding `nano_banana_prompt`.
+      // Keep the creative blueprint prompt. Camera changes are intentional
+      // creative direction, not conflicts with product identity.
       const blueprintPrompt = (prompt || '').trim();
       const sceneBrief = (scenePrompt || '').trim();
       let lifestyleAddition = [blueprintPrompt, sceneBrief ? `[SCENE FOCUS]\n${sceneBrief}` : '']
         .filter(Boolean)
         .join('\n\n') || 'Indonesian family enjoying warm golden hour on the porch and driveway.';
-      lifestyleAddition = lifestyleAddition
-        .replace(/\b(drone angle|aerial view|low angle|extreme low angle|wide architectural reveal|alternate perspective|new viewpoint|backyard view|side elevation|rear view)\b/gi, 'same eye-level perspective as Image 1')
-        .trim();
+      lifestyleAddition = lifestyleAddition.trim();
 
-      // Requirement #4 & #5: Centralized 6-Stage ARCHITECTURAL CONSISTENCY GUARD Policy
+      // Identity-first policy: preserve the product, never the source photograph.
       const CORE_PRESERVATION_PROMPT =
-        'Edit the supplied property photograph; do not generate a replacement building. The designated property reference is the architectural source of truth. Preserve the visible building geometry, roof silhouette, floor count, proportions, openings, columns, balconies, fence, entrance, materials, and viewpoint. Style references may influence atmosphere and presentation only, never architecture. Change only the explicitly allowed elements. Do not invent hidden sides or redesign the property. If the requested scene conflicts with architectural preservation, preserve the property and simplify the scene.';
+        'The supplied reference is architectural/product evidence, not a composition template. First understand the defining product identity, then reconstruct the same recognizable property in a new visual scene. Preserve defining massing, proportions, spatial relationships, and signature architectural characteristics. Do not reproduce source pixels or automatically preserve the camera angle, crop, lighting, sky, background, landscaping, people, vehicles, or composition.';
 
-      const systemPrompt = `You are performing constrained photographic editing under the AFFINITY ARCHITECTURAL CONSISTENCY GUARD. Image 1 is immutable physical architectural ground truth for this property. Preserve its camera viewpoint, perspective, building silhouette, roof geometry, floor count, wall boundaries, doors, windows, columns, gables, openings, proportions and permanent facade materials. Never reconstruct, redesign, replace or reinterpret the building. If a requested creative change conflicts with architecture preservation, preserve architecture and omit the conflicting change. Treat the task as editing the supplied photograph, not generating a new property.`;
+      const systemPrompt = `You are operating the AFFINITY ARCHITECTURAL CONSISTENCY GUARD. Treat Image 1 as product evidence, not an immutable photograph. Preserve hard product identity only; actively allow a newly composed camera, framing, lighting, landscape, context, activity, and advertising treatment. Reject product drift such as changed floor count, primary massing, roof geometry, entrance logic, signature facade, road hierarchy, or cluster relationships. Do not reject a result merely because viewpoint or scene differs.`;
 
       // Stage 1: Kebijakan Pelestarian Arsitektur
       const stage1 = `[STAGE 1: ARCHITECTURAL PRESERVATION POLICY]\n${CORE_PRESERVATION_PROMPT}`;
 
-      // Stage 2: Identitas Properti & Peran Setiap Referensi
+      // Stage 2: Identity and reference roles
       const propertyTitle = req.body?.project?.name || req.body?.propertyId || 'Master Property';
       const refVersion = req.body?.referenceVersion || 1;
+      const analysis = req.body?.masterAnalysis || {};
+      const referenceType = analysis.reference_type || 'BUILDING_EXTERIOR';
+      const defaultHardIdentity = referenceType === 'MASTERPLAN_SITEPLAN' || referenceType === 'ENVIRONMENT_STREETSCAPE'
+        ? ['road hierarchy and circulation', 'cluster/block and parcel relationships', 'major open spaces and landmarks', 'spatial hierarchy and development structure']
+        : ['floor count', 'primary massing and overall proportions', 'roof geometry', 'entrance and balcony configuration', 'window/opening rhythm', 'signature facade features and important materials'];
+      const hardIdentity = Array.isArray(analysis.hard_identity_constraints) && analysis.hard_identity_constraints.length
+        ? analysis.hard_identity_constraints : (Array.isArray(analysis.locked) && analysis.locked.length ? analysis.locked : defaultHardIdentity);
+      const softAttributes = Array.isArray(analysis.soft_scene_attributes) && analysis.soft_scene_attributes.length
+        ? analysis.soft_scene_attributes : (Array.isArray(analysis.flexible) && analysis.flexible.length ? analysis.flexible : ['camera and framing', 'lighting/weather/sky', 'landscape and surrounding context', 'people, vehicles, furniture, and activity']);
       const cropIndex = compositionCrop ? 2 : null;
       const styleIndex = styleRef ? (compositionCrop ? 3 : 2) : null;
       const talentIndex = talentImage ? (compositionCrop ? (styleRef ? 4 : 3) : (styleRef ? 3 : 2)) : null;
       const stage2 = `[STAGE 2: PROPERTY IDENTITY & REFERENCE ROLES]
-- Image 1 (PRIMARY): FULL_MASTER_FACADE for "${propertyTitle}" (Version v${refVersion}). This is the IMMUTABLE architectural ground truth.
-${cropIndex ? `- Image ${cropIndex}: COMPOSITION_CROP (Framing and visible-area guidance ONLY. It must never replace, redefine, or narrow the architectural ground truth in Image 1).\n` : ''}${styleIndex ? `- Image ${styleIndex}: STYLE_REFERENCE (Guidance for atmosphere, lighting mood, color palette ONLY. NEVER alter building shape).\n` : ''}${talentIndex ? `- Image ${talentIndex}: TALENT_REFERENCE (Human talent casting guidance ONLY).\n` : ''}- Active Viewpoint: Eye-level perspective matching Image 1.`;
+- Image 1 (PRIMARY): ${referenceType} evidence for "${propertyTitle}" (Version v${refVersion}). Use it to understand identity, never to copy composition.
+${cropIndex ? `- Image ${cropIndex}: DETAIL_REFERENCE only; never use its framing as a required output composition.\n` : ''}${styleIndex ? `- Image ${styleIndex}: STYLE_REFERENCE directs atmosphere, palette, and presentation.\n` : ''}${talentIndex ? `- Image ${talentIndex}: TALENT_REFERENCE directs casting only.\n` : ''}- Internal transformation policy: high product identity (0.90), low scene similarity (0.25), high creative transformation (0.75). These are reasoning policy only, not API parameters.`;
 
       // Stage 3: Elemen yang Dilindungi
-      const archElems = req.body?.architecturalElements || {};
-      const stage3 = `[STAGE 3: PROTECTED ARCHITECTURAL ELEMENTS (DO NOT ALTER)]
-- Building Stories & Massing: ${archElems.storyCount || '2'} stories; ${archElems.massingShape || 'Preserve structural footprint & massing proportions'}
-- Roof Silhouette & Pitch: ${archElems.roofSilhouette || 'Preserve exact roof geometry, gable count, and overhangs'}
-- Openings: ${archElems.windowDoorArrangement || 'Preserve exact positions, count, and framing of windows and doors'}
-- Structural Features: ${archElems.columnsAndBalconies || 'Preserve all columns, balconies, railings, carports, and entrance boundaries'}
-- Materials & Colors: ${archElems.materialsAndColors || 'Preserve permanent facade materials, masonry, stone accents, and wood siding'}
-- Perspective: Keep camera viewpoint aligned with Image 1; do not distort vertical architectural lines.`;
+      const stage3 = `[STAGE 3: HARD PRODUCT IDENTITY CONSTRAINTS]
+Preserve these defining characteristics so the output remains the same product/development:
+${hardIdentity.map((item: string) => `- ${item}`).join('\n')}
+Do not introduce product drift: no changed floor count, primary massing, roof geometry, entrance logic, signature facade, or (for plans) road hierarchy, cluster relationship, and circulation.`;
 
       // Stage 4: Perubahan yang Diizinkan
-      const allowedAreas = Array.isArray(req.body?.editableAreas) && req.body.editableAreas.length > 0
-        ? req.body.editableAreas
-        : [
-            'Sky, clouds, and weather atmosphere',
-            'Sunlight, shadows, and time of day lighting',
-            'Foreground landscaping, lawn, and non-structural foliage',
-            'Human talent and family lifestyle interactions in outdoor areas',
-            'Vehicles positioned naturally in the driveway/street',
-            'Movable outdoor furniture and patio decor',
-            'Photographic color grading without altering physical structures',
-          ];
-
-      const stage4 = `[STAGE 4: ALLOWED MODIFICATIONS]
-Only the following elements may be introduced or edited:
-${allowedAreas.map((a: string) => `- ${a}`).join('\n')}
-Strictly forbidden: Changing roof slope, altering floor count, adding/removing windows or doors, redesigning facade finishes, or inventing non-visible building sides.`;
+      const stage4 = `[STAGE 4: TRANSFORMABLE SCENE ATTRIBUTES]
+These attributes are intentionally free to change according to Style, Lifestyle, and Carousel Blueprint:
+${softAttributes.map((item: string) => `- ${item}`).join('\n')}
+Create a new camera position, camera height, focal length, crop, foreground, lighting, weather, landscaping, surrounding environment, activity, and advertising composition when the creative direction calls for them.`;
 
       // Stage 5: Brief Slide
       const stage5 = `[STAGE 5: SLIDE SCENE BRIEF]
@@ -728,26 +729,20 @@ ${lifestyleAddition}`;
 
       // Stage 6: Suasana, Pencahayaan, dan Komposisi
       const stage6 = `[STAGE 6: ATMOSPHERE & LIGHTING COMPOSITION]
-Warm, natural Indonesian real-estate editorial photography, believable scale, physically plausible ambient lighting.
+Apply the requested visual direction as the primary driver of scene design. Warm, natural Indonesian real-estate editorial photography, believable scale, physically plausible ambient lighting.
 DO NOT RENDER ANY TEXT, TYPOGRAPHY, HEADLINES, WATERMARKS, OR GRAPHICS IN THE IMAGE.
-The final output must visibly depict the exact same physical property shown in Image 1.`;
+Create a genuinely new visualization while keeping the underlying property/development recognizable. Do not make a near-identical edit of Image 1.`;
 
       let finalUserPrompt = '';
 
       if (isStricterRegen) {
         finalUserPrompt += `[CRITICAL REGENERATION OVERRIDE]
-The previous generation was REJECTED because the architectural facade diverged from Image 1.
-You must strictly preserve the building geometry in Image 1 without any deviation.
-Do not redesign, do not substitute another house, do not add/remove facade elements.\n\n`;
+The previous generation showed product drift. Restore the hard identity constraints; retain the requested creative scene transformation.\n\n`;
       }
 
       if (mode === 'creative') {
-        finalUserPrompt += `[MODE: REFERENCE-GUIDED EDIT — CREATIVE]
-${CORE_PRESERVATION_PROMPT}
-Maintain general building identity while creatively adapting atmosphere and presentation.
-${stage2}
-${stage5}
-${stage6}`;
+        finalUserPrompt += `[MODE: IDENTITY-GUIDED RECONSTRUCTION]
+${stage1}\n\n${stage2}\n\n${stage3}\n\n${stage4}\n\n${stage5}\n\n${stage6}`;
       } else {
         // STRICT PRESERVE MODE (Default)
         finalUserPrompt += `${stage1}\n\n${stage2}\n\n${stage3}\n\n${stage4}\n\n${stage5}\n\n${stage6}`;
@@ -904,11 +899,11 @@ Perform strict architectural fidelity verification:
 2. window_door_layout_match (0-100): number, position, framing, mullions, balcony doors.
 3. massing_match (0-100): overall building footprint, story count, volumetric profile.
 4. facade_proportion_match (0-100): ratio of solid wall to glazed openings, column positions, finish materials.
-5. camera_view_match (0-100): same viewpoint, perspective, and framing.
+5. camera_view_match (0-100): report viewpoint difference for information only. A different viewpoint, perspective, or framing is allowed and must not reduce architectural fidelity or pass/fail.
 6. same_building (boolean): true ONLY if Image 2 is definitively the exact same physical house, not a replacement or redesign.
 7. critical_changes (array of strings): list any detected architectural alterations (e.g. "Gable roof replaced by flat roof", "Window count changed", "Floor added", "Different facade stone").
 8. overall_score (0-100): harmonic average of architectural scores.
-9. pass (boolean): TRUE ONLY if same_building is true AND roof >= 90 AND window_door >= 90 AND massing >= 90 AND facade_proportion >= 90 AND overall_score >= 90. Otherwise false.
+9. pass (boolean): TRUE ONLY if same_building is true AND roof >= 90 AND window_door >= 90 AND massing >= 90 AND facade_proportion >= 90 AND overall_score >= 90. Never use camera_view_match in pass/fail.
 
 Return JSON in this exact structure:
 {
@@ -935,7 +930,7 @@ Return JSON in this exact structure:
           messages: [
             {
               role: 'system',
-              content: 'You are an expert architectural facade comparator. You compare Image 1 (immutable reference) with Image 2 (generated image). Output only valid JSON.',
+              content: 'You are an expert architectural/product identity comparator. Compare hard architectural or spatial identity only. A new camera, crop, environment, lighting, landscaping, people, vehicles, or composition is allowed and must not be considered drift. Output only valid JSON.',
             },
             {
               role: 'user',

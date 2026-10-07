@@ -11,6 +11,7 @@ export interface ProjectData {
 }
 
 export interface MasterAnalysis {
+  reference_type?: 'BUILDING_EXTERIOR' | 'SHOPHOUSE' | 'MASTERPLAN_SITEPLAN' | 'ENVIRONMENT_STREETSCAPE' | 'INTERIOR' | 'UNKNOWN';
   property_identity: string;
   architectural_style: string;
   target_audience: string;
@@ -18,6 +19,13 @@ export interface MasterAnalysis {
   facade_lock: {
     immutable_features: string[];
     editable_environment_features: string[];
+  };
+  hard_identity_constraints?: string[];
+  soft_scene_attributes?: string[];
+  transformation_policy?: {
+    productIdentityStrength: number;
+    sceneSimilarity: number;
+    creativeTransformation: number;
   };
   visual_style: string;
   brand_tone: string;
