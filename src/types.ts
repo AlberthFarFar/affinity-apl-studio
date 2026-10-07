@@ -59,6 +59,12 @@ export type GuardStatus = 'PASS' | 'REJECT' | 'NEEDS_REVIEW' | 'NOT_VALIDATED';
 export type ReferenceRole = 'PROPERTY_REFERENCE' | 'STYLE_REFERENCE' | 'TALENT_REFERENCE';
 export type ImageGenerationEngine = 'nano-banana' | 'seedream';
 
+export interface AIImageSource {
+  originalImage: File;
+  masterAIImage: string;
+  role: 'property' | 'style' | 'talent' | 'logo';
+}
+
 export interface BuildingMask {
   x: number; // percentage 0-100
   y: number; // percentage 0-100

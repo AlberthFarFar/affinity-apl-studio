@@ -306,8 +306,8 @@ export const Step3Carousel: React.FC<Step3CarouselProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          propertyImages: allPropertyImages,
-          propertyImage,
+          masterAIImages: allPropertyImages,
+          masterAIImage: propertyImage,
           // Full master remains Image 1. The crop is passed separately for framing only.
           lockedFacadeUrl,
           styleImages: styleImage ? [styleImage] : [],

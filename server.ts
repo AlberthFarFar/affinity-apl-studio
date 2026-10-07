@@ -147,6 +147,17 @@ async function uploadToFalStorage(imageData: string): Promise<string> {
   throw new Error('Image reference must be a public HTTP(S) URL or a valid data URL that can be uploaded to fal Storage.');
 }
 
+function isDirectImageReference(image: unknown): image is string {
+  return typeof image === 'string' && (
+    image.startsWith('data:image/') || image.startsWith('http://') || image.startsWith('https://')
+  );
+}
+
+function shouldUseStorageFallback(error: any): boolean {
+  const message = String(error?.message || error?.detail || error || '').toLowerCase();
+  return /data:|data url|base64|image_url|image url|invalid image|unsupported image|url must/.test(message);
+}
+
 // -------------------------------------------------------------
 // Express Server App
 // -------------------------------------------------------------
@@ -341,10 +352,11 @@ Gunakan Bahasa Indonesia profesional. Keluarkan HANYA JSON tanpa pengantar.`;
       // Send the actual property pixels to the vision-capable model.  The old
       // implementation built `images` but never attached them to the request,
       // so it produced generic text-only "architectural analysis".
-      const imageUrls = await Promise.all(images.map((image) => uploadToFalStorage(image)));
       const analysisContent: any[] = [
         { type: 'text', text: prompt },
-        ...imageUrls.map((url) => ({ type: 'image_url', image_url: { url } })),
+        // fal OpenRouter accepts image data URLs, so the local master image
+        // reaches vision directly without mandatory fal Storage transport.
+        ...images.map((image) => ({ type: 'image_url', image_url: { url: image } })),
       ];
 
       const gptReply = await callGPTViaFal({
@@ -558,6 +570,8 @@ Keluarkan HANYA JSON.`;
 
     try {
       const {
+        masterAIImages,
+        masterAIImage,
         propertyImages = [],
         propertyImage,
         lockedFacadeUrl,
@@ -588,7 +602,10 @@ Keluarkan HANYA JSON.`;
       // Reference priority is deliberate and must not be changed by a crop:
       // Image 1 is always the full original master facade (architectural truth).
       // A composition crop is a separate framing aid only.
-      const primaryFacade = propertyImage || (propertyImages.length > 0 ? propertyImages[0] : null);
+      const normalizedMasterImages = Array.isArray(masterAIImages) && masterAIImages.length > 0
+        ? masterAIImages
+        : propertyImages;
+      const primaryFacade = masterAIImage || propertyImage || (normalizedMasterImages.length > 0 ? normalizedMasterImages[0] : null);
       const compositionCrop = lockedFacadeUrl && lockedFacadeUrl !== primaryFacade ? lockedFacadeUrl : null;
 
       if (!primaryFacade || typeof primaryFacade !== 'string') {
@@ -599,7 +616,7 @@ Keluarkan HANYA JSON.`;
         });
       }
 
-      // Configure fal credentials BEFORE storage upload and subscribe
+      // Configure fal credentials before the direct model request.
       fal.config({ credentials: currentKey });
 
       // Build ordered reference array strictly:
@@ -624,25 +641,19 @@ Keluarkan HANYA JSON.`;
 
       console.log(`[Image Gen] Reference images count: ${rawReferenceList.length} (Image 1: Full Master Facade, Has Crop: ${Boolean(compositionCrop)}, Has Style: ${Boolean(styleRef)}, Has Talent: ${Boolean(talentImage)})`);
 
-      // Upload references to fal storage to get clean public CDN URLs
-      const finalImageUrls: string[] = [];
-      for (let i = 0; i < rawReferenceList.length; i++) {
-        const rawImg = rawReferenceList[i];
-        try {
-          const url = await uploadToFalStorage(rawImg);
-          if (!url || !/^https?:\/\//.test(url)) {
-            throw new Error('fal Storage did not return a public HTTP(S) URL.');
-          }
-          finalImageUrls.push(url);
-        } catch (uploadErr) {
-          console.warn(`[Image Gen] Failed to upload reference ${i} to fal storage:`, uploadErr);
-          return res.status(422).json({
-            success: false,
-            error: 'REFERENCE_STORAGE_UPLOAD_FAILED',
-            message: `Reference image ${i + 1} could not be converted to a public fal Storage URL. Generation was not submitted.`,
-          });
-        }
+      if (!rawReferenceList.every(isDirectImageReference)) {
+        return res.status(422).json({
+          success: false,
+          error: 'INVALID_REFERENCE_IMAGE',
+          message: 'Referensi harus berupa data URL master AI atau URL HTTP(S) yang valid.',
+        });
       }
+
+      // Data URLs are supported by fal model inputs and avoid a mandatory
+      // browser/server round-trip through fal Storage. Keep the ordered array
+      // so future multi-reference support remains compatible.
+      let finalImageUrls = [...rawReferenceList];
+      let usedStorageFallback = false;
 
       // Validate supported aspect ratio
       const validAspectRatios = ['9:16', '4:5', '1:1', '5:4', '16:9'];
@@ -758,30 +769,50 @@ ${stage6}`;
         promptLength: finalUserPrompt.length,
       });
 
-      const inputPayload: any = {
-        prompt: finalUserPrompt,
-        image_url: finalImageUrls[0],
-        image_urls: finalImageUrls,
-        aspect_ratio: targetAspect,
-        resolution: targetRes,
-      };
+      const buildInputPayload = (images: string[]) => {
+        const inputPayload: any = {
+          prompt: finalUserPrompt,
+          image_url: images[0],
+          image_urls: images,
+          aspect_ratio: targetAspect,
+          resolution: targetRes,
+        };
 
-      // Apply system_prompt for Nano Banana Pro Edit
-      if (selectedModelId === 'fal-ai/nano-banana-pro/edit') {
-        inputPayload.system_prompt = systemPrompt;
-      }
+        if (selectedModelId === 'fal-ai/nano-banana-pro/edit') {
+          inputPayload.system_prompt = systemPrompt;
+        }
+        return inputPayload;
+      };
 
       let capturedRequestId: string | undefined;
 
       // Requirement #8: No automatic retry on paid generation
-      const result: any = await fal.subscribe(selectedModelId, {
-        input: inputPayload,
+      const submitGeneration = (images: string[]) => fal.subscribe(selectedModelId, {
+        input: buildInputPayload(images),
         logs: true,
         onEnqueue: (reqId: string) => {
           capturedRequestId = reqId;
           console.log(`[Image Gen] Request enqueued with ID: ${reqId}`);
         },
       });
+
+      let result: any;
+      try {
+        result = await submitGeneration(finalImageUrls);
+      } catch (directInputError: any) {
+        const hasLocalData = finalImageUrls.some((image) => image.startsWith('data:image/'));
+        if (!hasLocalData || !shouldUseStorageFallback(directInputError)) throw directInputError;
+
+        // Some provider/version combinations only accept public URLs. This is
+        // intentionally visible in server logs and only runs after direct
+        // transport was rejected; it is never the default path.
+        console.warn('[Image Gen] Direct image input rejected; using fal Storage fallback.', {
+          reason: directInputError?.message || String(directInputError),
+        });
+        finalImageUrls = await Promise.all(finalImageUrls.map(uploadToFalStorage));
+        usedStorageFallback = true;
+        result = await submitGeneration(finalImageUrls);
+      }
 
       console.log('[Image Gen] fal response received');
 
@@ -814,6 +845,7 @@ ${stage6}`;
         promptUsed: finalUserPrompt,
         lockedFacadeUsed: finalImageUrls[0],
         compositionCropUsed: compositionCrop ? finalImageUrls[1] : null,
+        referenceTransport: usedStorageFallback ? 'fal-storage-fallback' : 'direct-data-url',
       });
     } catch (err: any) {
       console.error('[Image Gen] Error in generation route:', err);
@@ -855,10 +887,16 @@ ${stage6}`;
       fal.config({ credentials: currentKey });
 
       // Ensure both images are accessible URLs
-      const [refUrl, genUrl] = await Promise.all([
-        uploadToFalStorage(referenceImageUrl),
-        uploadToFalStorage(generatedImageUrl),
-      ]);
+      if (!isDirectImageReference(referenceImageUrl) || !isDirectImageReference(generatedImageUrl)) {
+        return res.status(400).json({
+          success: false,
+          error: 'INVALID_IMAGE_REFERENCE',
+          message: 'Visual QA membutuhkan data URL atau URL HTTP(S) yang valid.',
+        });
+      }
+
+      // Keep the master AI image local/direct for Gemini vision as well.
+      const [refUrl, genUrl] = [referenceImageUrl, generatedImageUrl];
 
       const promptText = `Compare Image 1 (immutable reference facade) and Image 2 (generated/edited facade).
 Perform strict architectural fidelity verification:

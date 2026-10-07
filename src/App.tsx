@@ -13,6 +13,7 @@ import {
   ProjectData,
   UGCPack,
   PropertyReferenceMeta,
+  AIImageSource,
 } from './types';
 import { SAMPLE_PRESETS } from './utils/presets';
 import {
@@ -34,6 +35,9 @@ export default function App() {
   const [styleImages, setStyleImages] = useState<string[]>([]);
   const [talentImage, setTalentImage] = useState<string | null>(null);
   const [logoImage, setLogoImage] = useState<string | null>(null);
+  // Keeps the user-owned source file available while all AI routes use only
+  // the optimized masterAIImage data URL.
+  const [originalImages, setOriginalImages] = useState<AIImageSource[]>([]);
 
   // Master Property Analysis & Locking
   const [masterAnalysis, setMasterAnalysis] = useState<MasterAnalysis | null>(null);
@@ -251,6 +255,7 @@ export default function App() {
             setTalentImage={setTalentImage}
             logoImage={logoImage}
             setLogoImage={setLogoImage}
+            setOriginalImages={setOriginalImages}
             onAnalyzeAndProceed={handleAnalyzeAndProceed}
             isAnalyzing={isAnalyzing}
           />

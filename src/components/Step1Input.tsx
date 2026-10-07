@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Upload,
   Building2,
@@ -12,12 +12,11 @@ import {
   CheckCircle,
   FileCheck2,
   Loader2,
-  CloudUpload,
   AlertCircle,
 } from 'lucide-react';
-import { ProjectData } from '../types';
+import { AIImageSource, ProjectData } from '../types';
 import { SAMPLE_PRESETS } from '../utils/presets';
-import { uploadToFalStorage } from '../lib/falClient';
+import { createMasterAIImage, readImageAsDataUrl } from '../utils/imageProcessing';
 
 interface Step1InputProps {
   project: ProjectData;
@@ -30,6 +29,7 @@ interface Step1InputProps {
   setTalentImage: React.Dispatch<React.SetStateAction<string | null>>;
   logoImage: string | null;
   setLogoImage: React.Dispatch<React.SetStateAction<string | null>>;
+  setOriginalImages: React.Dispatch<React.SetStateAction<AIImageSource[]>>;
   onAnalyzeAndProceed: () => void;
   isAnalyzing: boolean;
 }
@@ -45,6 +45,7 @@ export const Step1Input: React.FC<Step1InputProps> = ({
   setTalentImage,
   logoImage,
   setLogoImage,
+  setOriginalImages,
   onAnalyzeAndProceed,
   isAnalyzing,
 }) => {
@@ -53,12 +54,19 @@ export const Step1Input: React.FC<Step1InputProps> = ({
   const talentInputRef = useRef<HTMLInputElement>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
 
-  const [isUploadingToStorage, setIsUploadingToStorage] = useState(false);
+  const originalImagesRef = useRef(new Map<string, File>());
+  const [isPreparingImages, setIsPreparingImages] = useState(false);
   const [uploadStatusText, setUploadStatusText] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
-  // Upload original File/Blob directly to fal Storage (CDN) via server proxy
-  // Large binaries bypass backend JSON request body, preventing HTTP 413
+  useEffect(() => () => {
+    for (const objectUrl of originalImagesRef.current.keys()) {
+      if (objectUrl.startsWith('blob:')) URL.revokeObjectURL(objectUrl);
+    }
+  }, []);
+
+  // A local object URL is inserted before processing so users see their photo
+  // immediately. It is then atomically replaced with masterAIImage.
   const handleImageUpload = async (
     e: React.ChangeEvent<HTMLInputElement>,
     type: 'property' | 'style' | 'talent' | 'logo'
@@ -66,49 +74,53 @@ export const Step1Input: React.FC<Step1InputProps> = ({
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    setIsUploadingToStorage(true);
+    setIsPreparingImages(true);
     setUploadError(null);
 
     try {
       if (type === 'property' || type === 'style') {
         const fileList = Array.from(files).filter((f) => f.type.startsWith('image/'));
-        const uploadedUrls: string[] = [];
 
         for (let i = 0; i < fileList.length; i++) {
           const file = fileList[i];
-          setUploadStatusText(
-            `Mengunggah gambar ${i + 1}/${fileList.length} (${file.name}) ke fal Storage...`
-          );
-          const falUrl = await uploadToFalStorage(file);
-          uploadedUrls.push(falUrl);
-        }
+          const previewUrl = URL.createObjectURL(file);
+          originalImagesRef.current.set(previewUrl, file);
+          const setImages = type === 'property' ? setPropertyImages : setStyleImages;
+          setImages((prev) => [...prev, previewUrl]);
 
-        if (type === 'property') {
-          setPropertyImages((prev) => [...prev, ...uploadedUrls]);
-        } else {
-          setStyleImages((prev) => [...prev, ...uploadedUrls]);
+          setUploadStatusText(`Menyiapkan gambar ${i + 1}/${fileList.length} (${file.name})...`);
+          const masterAIImage = await createMasterAIImage(file);
+          setUploadStatusText(`Mengoptimalkan master AI ${i + 1}/${fileList.length} tanpa crop...`);
+
+          setImages((prev) => prev.map((image) => image === previewUrl ? masterAIImage : image));
+          originalImagesRef.current.delete(previewUrl);
+          originalImagesRef.current.set(masterAIImage, file);
+          setOriginalImages((prev) => [...prev, { originalImage: file, masterAIImage, role: type }]);
+          URL.revokeObjectURL(previewUrl);
         }
       } else if (type === 'talent') {
         const file = files[0];
         if (file && file.type.startsWith('image/')) {
-          setUploadStatusText(`Mengunggah foto talent (${file.name}) ke fal Storage...`);
-          const falUrl = await uploadToFalStorage(file);
-          setTalentImage(falUrl);
+          setUploadStatusText(`Mengoptimalkan foto talent (${file.name})...`);
+          const masterAIImage = await createMasterAIImage(file);
+          setTalentImage(masterAIImage);
+          setOriginalImages((prev) => [...prev, { originalImage: file, masterAIImage, role: 'talent' }]);
         }
       } else if (type === 'logo') {
         const file = files[0];
         if (file && file.type.startsWith('image/')) {
-          setUploadStatusText(`Mengunggah logo brand (${file.name}) ke fal Storage...`);
-          const falUrl = await uploadToFalStorage(file);
-          setLogoImage(falUrl);
+          setUploadStatusText(`Menyiapkan logo brand (${file.name})...`);
+          const masterAIImage = await readImageAsDataUrl(file);
+          setLogoImage(masterAIImage);
+          setOriginalImages((prev) => [...prev, { originalImage: file, masterAIImage, role: 'logo' }]);
         }
       }
     } catch (err: any) {
-      console.error('Error uploading image to fal storage:', err);
-      const msg = err?.message || 'Gagal mengunggah gambar ke fal Storage.';
+      console.error('Error preparing local image:', err);
+      const msg = err?.message || 'Gagal menyiapkan gambar lokal.';
       setUploadError(msg);
     } finally {
-      setIsUploadingToStorage(false);
+      setIsPreparingImages(false);
       setUploadStatusText(null);
       e.target.value = '';
     }
@@ -183,17 +195,9 @@ export const Step1Input: React.FC<Step1InputProps> = ({
 
       canvas.toBlob(async (blob) => {
         if (!blob) return;
-        try {
-          const falUrl = await uploadToFalStorage(blob);
-          if (propertyImages.length === 0) {
-            setPropertyImages([falUrl]);
-          }
-        } catch {
-          // If offline / demo fallback
-          const objectUrl = URL.createObjectURL(blob);
-          if (propertyImages.length === 0) {
-            setPropertyImages([objectUrl]);
-          }
+        const masterAIImage = await createMasterAIImage(blob);
+        if (propertyImages.length === 0) {
+          setPropertyImages([masterAIImage]);
         }
       }, 'image/jpeg', 0.9);
     }
@@ -229,13 +233,13 @@ export const Step1Input: React.FC<Step1InputProps> = ({
         </div>
       </div>
 
-      {/* Fal Storage Uploading Indicator / Error Banner */}
-      {isUploadingToStorage && (
+      {/* Local image preparation indicator / error banner */}
+      {isPreparingImages && (
         <div role="status" aria-live="polite" className="bg-teal-50 border border-teal-200 rounded-xl p-3.5 flex items-center gap-3 text-teal-900 shadow-xs animate-pulse">
           <Loader2 className="w-5 h-5 text-teal-600 animate-spin shrink-0" />
           <div className="text-xs">
-            <p className="font-semibold text-teal-950">Mengunggah ke fal Storage Cloud CDN</p>
-            <p className="text-teal-700">{uploadStatusText || 'Mengirim gambar asli langsung ke storage cloud...'}</p>
+            <p className="font-semibold text-teal-950">Menyiapkan gambar lokal</p>
+            <p className="text-teal-700">{uploadStatusText || 'Membuat master AI berkualitas tinggi...'}</p>
           </div>
         </div>
       )}
@@ -244,7 +248,7 @@ export const Step1Input: React.FC<Step1InputProps> = ({
         <div role="alert" className="bg-rose-50 border border-rose-200 rounded-xl p-3.5 flex items-center gap-3 text-rose-900 shadow-xs">
           <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
           <div className="text-xs">
-            <p className="font-semibold text-rose-950">Gagal Mengunggah ke Storage</p>
+            <p className="font-semibold text-rose-950">Gagal Menyiapkan Gambar</p>
             <p className="text-rose-700">{uploadError}</p>
           </div>
         </div>
@@ -299,7 +303,7 @@ export const Step1Input: React.FC<Step1InputProps> = ({
                 <button
                   type="button"
                   onClick={() => propInputRef.current?.click()}
-                  disabled={isUploadingToStorage}
+                  disabled={isPreparingImages}
                   className="space-y-2 rounded-lg px-3 py-2 text-center disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <div className="w-10 h-10 mx-auto rounded-full bg-teal-100 flex items-center justify-center text-teal-700 group-hover:scale-105 transition-transform">
@@ -375,7 +379,7 @@ export const Step1Input: React.FC<Step1InputProps> = ({
                     <button
                       type="button"
                       onClick={() => propInputRef.current?.click()}
-                      disabled={isUploadingToStorage}
+                      disabled={isPreparingImages}
                       className="text-teal-700 hover:underline font-medium disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       + Tambah foto
@@ -415,7 +419,7 @@ export const Step1Input: React.FC<Step1InputProps> = ({
                 <button
                   type="button"
                   onClick={() => styleInputRef.current?.click()}
-                  disabled={isUploadingToStorage}
+                  disabled={isPreparingImages}
                   className="space-y-2 rounded-lg px-3 py-2 text-center disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <div className="w-10 h-10 mx-auto rounded-full bg-slate-100 flex items-center justify-center text-slate-500 group-hover:scale-105 transition-transform">
@@ -473,7 +477,7 @@ export const Step1Input: React.FC<Step1InputProps> = ({
                     <button
                       type="button"
                       onClick={() => styleInputRef.current?.click()}
-                      disabled={isUploadingToStorage}
+                      disabled={isPreparingImages}
                       className="text-teal-700 hover:underline font-medium disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       + Tambah gaya
@@ -691,9 +695,9 @@ export const Step1Input: React.FC<Step1InputProps> = ({
 
         <button
           onClick={onAnalyzeAndProceed}
-          disabled={propertyImages.length === 0 || isAnalyzing}
+          disabled={propertyImages.length === 0 || isAnalyzing || isPreparingImages}
           className={`w-full sm:w-auto px-7 py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-sm ${
-            propertyImages.length === 0 || isAnalyzing
+            propertyImages.length === 0 || isAnalyzing || isPreparingImages
               ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
               : 'bg-teal-600 hover:bg-teal-500 text-white shadow-teal-700/20 hover:shadow-md'
           }`}
