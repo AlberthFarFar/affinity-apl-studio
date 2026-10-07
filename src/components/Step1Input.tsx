@@ -17,6 +17,8 @@ import {
 import { AIImageSource, ProjectData } from '../types';
 import { SAMPLE_PRESETS } from '../utils/presets';
 import { createMasterAIImage, readImageAsDataUrl } from '../utils/imageProcessing';
+import { ProjectIntelligencePanel } from './ProjectIntelligencePanel';
+import type { ProjectIntelligence } from '../types/projectIntelligence';
 
 interface Step1InputProps {
   project: ProjectData;
@@ -32,6 +34,7 @@ interface Step1InputProps {
   setOriginalImages: React.Dispatch<React.SetStateAction<AIImageSource[]>>;
   onAnalyzeAndProceed: () => void;
   isAnalyzing: boolean;
+  onApplyProjectIntelligence: (intelligence: ProjectIntelligence) => void;
 }
 
 export const Step1Input: React.FC<Step1InputProps> = ({
@@ -48,6 +51,7 @@ export const Step1Input: React.FC<Step1InputProps> = ({
   setOriginalImages,
   onAnalyzeAndProceed,
   isAnalyzing,
+  onApplyProjectIntelligence,
 }) => {
   const propInputRef = useRef<HTMLInputElement>(null);
   const styleInputRef = useRef<HTMLInputElement>(null);
@@ -582,6 +586,8 @@ export const Step1Input: React.FC<Step1InputProps> = ({
           </div>
         </div>
       </div>
+
+      <ProjectIntelligencePanel projectName={project.name} onApply={onApplyProjectIntelligence} />
 
       {/* 2. Facts & Property Data Card */}
       <div className="bg-white rounded-2xl shadow-xs border border-slate-200/90 p-5 sm:p-7">

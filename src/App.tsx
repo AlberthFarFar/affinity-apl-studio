@@ -15,6 +15,7 @@ import {
   PropertyReferenceMeta,
   AIImageSource,
 } from './types';
+import type { ProjectIntelligence } from './types/projectIntelligence';
 import { SAMPLE_PRESETS } from './utils/presets';
 import {
   getStoredPropertyMeta,
@@ -29,6 +30,7 @@ export default function App() {
 
   // Property Project State initialized with default Podomoro Akasia
   const [project, setProject] = useState<ProjectData>(SAMPLE_PRESETS[0].project);
+  const [projectIntelligence, setProjectIntelligence] = useState<ProjectIntelligence | null>(null);
 
   // Separated Image References
   const [propertyImages, setPropertyImages] = useState<string[]>([]);
@@ -146,6 +148,7 @@ export default function App() {
         body: JSON.stringify({
           propertyImage: propertyImages[0],
           project,
+          projectIntelligence,
         }),
       });
 
@@ -212,6 +215,19 @@ export default function App() {
     setCurrentStep(3);
   };
 
+  const handleApplyProjectIntelligence = (intelligence: ProjectIntelligence) => {
+    setProjectIntelligence(intelligence);
+    setProject((current) => ({
+      ...current,
+      name: intelligence.project.name || current.name,
+      type: [intelligence.project.cluster, intelligence.project.unitType].filter(Boolean).join(' • ') || current.type,
+      developer: intelligence.project.developer || current.developer,
+      website: intelligence.sources.find((source) => source.sourceType === 'official')?.url || current.website,
+      style: intelligence.visualDNA.architecturalCharacter || current.style,
+      features: [...intelligence.visualDNA.primaryAnchors, ...intelligence.visualDNA.materials].slice(0, 5).join(', ') || current.features,
+    }));
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-800">
       {/* Top Navbar */}
@@ -258,6 +274,7 @@ export default function App() {
             setOriginalImages={setOriginalImages}
             onAnalyzeAndProceed={handleAnalyzeAndProceed}
             isAnalyzing={isAnalyzing}
+            onApplyProjectIntelligence={handleApplyProjectIntelligence}
           />
         )}
 
