@@ -320,7 +320,7 @@ async function startServer() {
         });
       }
 
-      const { propertyImage, referenceImages = [], project, projectIntelligence } = req.body;
+      const { propertyImage, referenceImages = [], imageDescriptions = [], project, projectIntelligence } = req.body;
       const images: string[] = [];
       if (propertyImage) images.push(propertyImage);
       if (Array.isArray(referenceImages)) {
@@ -333,6 +333,18 @@ async function startServer() {
         return res.status(400).json({ error: 'Foto referensi properti wajib disertakan.' });
       }
 
+      const descriptionByImage = new Map<string, string>();
+      if (Array.isArray(imageDescriptions)) {
+        for (const item of imageDescriptions) {
+          if (item?.image && typeof item.description === 'string' && item.description.trim()) {
+            descriptionByImage.set(item.image, item.description.trim());
+          }
+        }
+      }
+      const referenceContext = images
+        .map((image, index) => `- Gambar ${index + 1}${index === 0 ? ' (referensi utama)' : ''}: ${descriptionByImage.get(image) || 'Tidak ada deskripsi tambahan; identifikasi konteks dari gambar.'}`)
+        .join('\n');
+
       const prompt = `Anda adalah Lead Architectural Director & Real Estate Campaign Strategist untuk Agung Podomoro Land.
 Analisis proyek properti "${project?.name || 'Properti Hunian Modern'}":
 - Tipe/Harga: ${project?.type || 'Hunian'} / ${project?.price || 'Sesuai Pasar'}
@@ -340,6 +352,10 @@ Analisis proyek properti "${project?.name || 'Properti Hunian Modern'}":
 - Fasilitas: ${project?.features || 'Taman, Keamanan 24 Jam, Clubhouse'}
 - Developer: ${project?.developer || 'Agung Podomoro Land'}
 ${projectIntelligence?.conciseGenerationContext ? `\nPROJECT INTELLIGENCE (supporting context only; image remains primary evidence):\n${projectIntelligence.conciseGenerationContext}\n` : ''}
+
+KONTEKS SETIAP GAMBAR DARI PENGGUNA:
+${referenceContext}
+Gunakan keterangan ini untuk memahami sudut pandang atau area yang ditampilkan (misalnya tampak depan, eksterior, balkon, interior, site plan). Keterangan membantu menginterpretasikan gambar, tetapi jangan mengarang elemen yang tidak terlihat.
 
 Lakukan analisis mendalam dan hasilkan JSON terstruktur dengan format persis berikut:
 {
@@ -393,12 +409,16 @@ Gunakan Bahasa Indonesia profesional. Keluarkan HANYA JSON tanpa pengantar.`;
       // Send the actual property pixels to the vision-capable model.  The old
       // implementation built `images` but never attached them to the request,
       // so it produced generic text-only "architectural analysis".
-      const analysisContent: any[] = [
-        { type: 'text', text: prompt },
-        // fal OpenRouter accepts image data URLs, so the local master image
-        // reaches vision directly without mandatory fal Storage transport.
-        ...images.map((image) => ({ type: 'image_url', image_url: { url: image } })),
-      ];
+      const analysisContent: any[] = [{ type: 'text', text: prompt }];
+      // Pair a textual label with each image so the VLM knows exactly which
+      // user-authored context belongs to which visual reference.
+      images.forEach((image, index) => {
+        analysisContent.push({
+          type: 'text',
+          text: `GAMBAR ${index + 1}${index === 0 ? ' — REFERENSI UTAMA' : ''}: ${descriptionByImage.get(image) || 'Tidak ada deskripsi tambahan.'}`,
+        });
+        analysisContent.push({ type: 'image_url', image_url: { url: image } });
+      });
 
       const gptReply = await callGPTViaFal({
         messages: [
