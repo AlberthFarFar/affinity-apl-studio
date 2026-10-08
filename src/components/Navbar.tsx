@@ -99,6 +99,14 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span>Diagnostik</span>
             </button>
           )}
+          {import.meta.env.DEV && (
+            <a
+              href="/visual-style-test-lab"
+              className="text-[11px] font-bold text-fuchsia-700 hover:text-fuchsia-900 bg-fuchsia-50 hover:bg-fuchsia-100 border border-fuchsia-200 px-2 py-0.5 rounded-md transition-colors"
+            >
+              Visual Style Lab
+            </a>
+          )}
         </div>
 
         {/* Mobile Toggle */}

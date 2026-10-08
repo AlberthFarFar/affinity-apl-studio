@@ -1,30 +1,11 @@
-# Context Crop v2 — apply guide
+# APPLY INSTRUCTIONS
 
-## File baru
+1. Buat backup atau branch baru dari repository `affinity-apl-studio`, lalu pastikan baseline Anda adalah `main` commit `798968107166a3ed4c0a242f5e0ae5f9fa3871cc` (atau review konflik jika `main` sudah lebih baru).
+2. Ekstrak ZIP ini. Salin seluruh isi hasil ekstrak ke **root repository** sambil mempertahankan struktur folder. Izinkan overwrite hanya untuk lima file berstatus **MODIFIED** di `CHANGE_MANIFEST.md`; file berstatus **ADDED** harus masuk ke path baru yang sama.
+3. Di root repository jalankan `npm install`, `npm run test:visual-style-lab`, `npm run lint`, lalu `npm run build`. Jangan lanjut jika salah satu gagal.
+4. Untuk pemakaian lokal, lab tersedia di `/visual-style-test-lab`. Paid generation tetap OFF. Jika benar-benar ingin melakukan uji berbayar secara lokal, simpan `FAL_KEY` hanya di secret/environment backend dan set `VISUAL_STYLE_LAB_PAID_GENERATION_ENABLED=true`. Jangan pernah membuat variabel `VITE_FAL_KEY`.
+5. Untuk memperbarui GitHub lewat web: upload file dengan path yang sama ke branch fitur, review tab **Files changed**, lalu commit ke branch tersebut dan buat PR. Paket ini sendiri tidak membuat commit/push.
+6. Untuk Google AI Studio: simpan/backup perubahan lokal yang belum tersinkron, pilih project repository yang sama, gunakan fitur pull/sync dari branch yang sudah direview, cek konflik pada lima file MODIFIED, lalu ulangi test/build sebelum deploy.
+7. Saat deploy publik, biarkan `VISUAL_STYLE_LAB_ENABLED` tidak disetel/false. Lab page menjadi 404 dan paid endpoints tetap ditolak. Aplikasi ini belum memiliki auth lab, sehingga kode sengaja tidak mengizinkan paid lab generation di production.
 
-- `src/components/image-crop/ImageCropModal.tsx`
-- `src/utils/imageCrop.ts`
-
-## File pengganti
-
-- `src/components/Step1Input.tsx`
-- `src/types.ts`
-- `package.json`
-
-## Dependency
-
-`react-image-crop` (`^11.0.10`)
-
-Jalankan `npm install`, lalu validasi dengan `npm run lint` dan `npm run build`.
-
-## Cara menerapkan
-
-Salin isi folder `src/` dan `package.json` dari paket ini ke path yang sama di root repository Affinity, lalu jalankan perintah install di atas. File source asli di paket ini adalah pengganti lengkap, bukan patch parsial.
-
-## Perilaku
-
-Sebelumnya referensi properti/gaya langsung dioptimalkan menjadi Master AI Image. Sekarang setiap gambar membuka editor crop lokal; gambar multi-upload diproses satu per satu. Original tetap disimpan, sedangkan Master AI Image dibuat dari hasil crop. Thumbnail mendukung **Edit Crop** tanpa unggah ulang.
-
-## Batasan diketahui
-
-Crop besar dibatasi pada sisi terpanjang 8192px untuk mencegah alokasi canvas yang tidak aman. PNG dipertahankan sebagai PNG; format lain diekspor JPEG sebelum optimasi Master AI.
+Catatan: `visual-style-test-presets.v1.json` dan `SEEDREAM_FINISH_ONLY_PROMPT.txt` adalah sumber baku. Jangan edit tanpa versi baru dan alasan teknis yang terdokumentasi.

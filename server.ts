@@ -12,6 +12,8 @@ import {
   runFalPipelineDiagnostics,
 } from './server/diagnostics.ts';
 import { analyzeProjectIntelligence } from './server/projectIntelligence.ts';
+import { createVisualStyleLabRouter, resolveVisualStyleLabFlags } from './server/visualStyleLab/routes.ts';
+import type { FalRunner } from './server/visualStyleLab/types.ts';
 
 dotenv.config();
 
@@ -168,6 +170,13 @@ async function startServer() {
 
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+  // Isolated development/test lab. All billable routes are separately gated
+  // server-side and remain unavailable in production because this app has no auth.
+  app.use('/api/visual-style-lab', createVisualStyleLabRouter(
+    fal as unknown as FalRunner,
+    () => (process.env.FAL_KEY || '').trim(),
+  ));
 
   // Protected fal server proxy endpoint
   // Handles storage upload initiation & fal client requests securely without exposing FAL_KEY
@@ -1384,6 +1393,12 @@ Keluarkan HANYA JSON tanpa pengantar.`;
     app.use(vite.middlewares);
   } else {
     app.use(express.static(path.join(__dirname, 'dist')));
+    app.get('/visual-style-test-lab', (_req, res, next) => {
+      if (!resolveVisualStyleLabFlags().labEnabled) {
+        return res.status(404).send('Visual Style Testing Lab is disabled.');
+      }
+      next();
+    });
     app.get('*', (req, res) => {
       res.sendFile(path.join(__dirname, 'dist', 'index.html'));
     });

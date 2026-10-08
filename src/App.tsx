@@ -23,8 +23,13 @@ import {
   incrementReferenceVersion,
 } from './utils/projectStorage';
 import { ShieldCheck, AlertCircle } from 'lucide-react';
+import { VisualStyleTestLab } from './features/visual-style-test-lab/VisualStyleTestLab';
 
 export default function App() {
+  if (window.location.pathname.replace(/\/$/, '') === '/visual-style-test-lab') {
+    return <VisualStyleTestLab />;
+  }
+
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [diagnosticModalOpen, setDiagnosticModalOpen] = useState<boolean>(false);
 
