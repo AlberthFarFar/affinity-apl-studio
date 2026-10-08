@@ -1305,7 +1305,8 @@ Keluarkan HANYA JSON tanpa pengantar.`;
     });
     app.use(vite.middlewares);
   } else {
-    app.use(express.static(path.join(__dirname, 'dist')));
+    const distPath = path.join(process.cwd(), 'dist');
+    app.use(express.static(distPath));
     app.get('/visual-style-test-lab', (_req, res, next) => {
       if (!resolveVisualStyleLabFlags().labEnabled) {
         return res.status(404).send('Visual Style Testing Lab is disabled.');
@@ -1313,11 +1314,11 @@ Keluarkan HANYA JSON tanpa pengantar.`;
       next();
     });
     app.get('*', (req, res) => {
-      res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+      res.sendFile(path.join(distPath, 'index.html'));
     });
   }
 
-  app.listen(port, () => {
+  app.listen(port, '0.0.0.0', () => {
     console.log(`[Affinity] Server running on port ${port} with Unified fal.ai Pipeline`);
   });
 }
