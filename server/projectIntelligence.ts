@@ -4,8 +4,8 @@ import type { ProjectIntelligenceInput } from '../src/types/projectIntelligence.
 
 const schema = `Return ONLY valid JSON matching this shape: {project:{name,developer?,cluster?,unitType?,propertyType?},identityMatch:{projectMatch:number,clusterMatch?:number,unitMatch?:number},facts:[{statement:string,sourceUrl?:string,confidence:"high"|"medium"|"low"}],visualDNA:{architecturalCharacter?,massing?,facadeComposition?,roofCharacter?,openings?,materials:string[],primaryAnchors:string[],secondaryAnchors:string[],mustPreserve:string[],flexibleElements:string[],nonEssentialElements:string[]},environment?:{landscapeCharacter?,roadCharacter?,vegetation?,neighborhoodDensity?,siteCharacter?},observations:string[],inferences:string[],sources:[{url:string,title?,sourceType:"official"|"official-social"|"news"|"property-portal"|"brochure"|"secondary"|"unknown",confidence:"high"|"medium"|"low",usageRole:"structural_reference"|"visual_style_reference"|"environment_reference"|"brand_reference"|"information_only"|"rejected",projectMatch?:number,clusterMatch?:number,unitMatch?:number}],warnings?:string[]}`;
 
-export async function analyzeProjectIntelligence(input: ProjectIntelligenceInput) {
-  const apiKey = (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '').trim();
+export async function analyzeProjectIntelligence(input: ProjectIntelligenceInput, configuredApiKey?: string) {
+  const apiKey = (configuredApiKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '').trim();
   if (!apiKey) throw new Error('GEMINI_API_KEY belum dikonfigurasi di server environment.');
   const urls = (input.urls || []).filter((url) => /^https?:\/\//i.test(url)).slice(0, 5);
   const query = [input.projectName, input.clusterName, input.unitType].filter(Boolean).join(' ');

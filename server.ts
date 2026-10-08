@@ -11,7 +11,7 @@ import {
   testAnalyzeMasterCommunication,
   runFalPipelineDiagnostics,
 } from './server/diagnostics.ts';
-import { analyzeProjectIntelligence } from './server/projectIntelligence.ts';
+import { createProjectIntelligenceRouter } from './server/projectIntelligenceRoute.ts';
 import { createVisualStyleLabRouter, resolveVisualStyleLabFlags } from './server/visualStyleLab/routes.ts';
 import type { FalRunner } from './server/visualStyleLab/types.ts';
 
@@ -171,6 +171,8 @@ async function startServer() {
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
+  app.use('/api/project-intelligence', createProjectIntelligenceRouter());
+
   // Isolated development/test lab. All billable routes are separately gated
   // server-side and remain unavailable in production because this app has no auth.
   app.use('/api/visual-style-lab', createVisualStyleLabRouter(
@@ -228,40 +230,6 @@ async function startServer() {
   app.get('/api/diagnostics/analyze-master', async (req, res) => {
     const diagnostic = await testAnalyzeMasterCommunication();
     res.json(diagnostic);
-  });
-
-  // Project Intelligence stays server-side so Gemini credentials never reach the browser.
-  // Gemini URL Context / Google Search are used opportunistically by the SDK and degrade
-  // to a clear user-facing error when the configured model/account cannot access them.
-  app.post('/api/project-intelligence/analyze', async (req, res) => {
-    const { projectName, clusterName, unitType, urls, discover } = req.body || {};
-    if (typeof projectName !== 'string' || !projectName.trim()) {
-      return res.status(400).json({ success: false, error: 'Nama project wajib diisi sebelum dianalisis.' });
-    }
-    const suppliedUrls = Array.isArray(urls) ? urls.filter((url) => typeof url === 'string' && url.trim()) : [];
-    const invalidUrl = suppliedUrls.find((url) => !/^https?:\/\//i.test(url));
-    if (invalidUrl) {
-      return res.status(400).json({ success: false, error: `URL tidak valid: ${invalidUrl}. Gunakan URL publik yang diawali http:// atau https://.` });
-    }
-    try {
-      const intelligence = await analyzeProjectIntelligence({
-        projectName: projectName.trim(),
-        clusterName: typeof clusterName === 'string' ? clusterName.trim() : undefined,
-        unitType: typeof unitType === 'string' ? unitType.trim() : undefined,
-        urls: suppliedUrls,
-        discover: Boolean(discover),
-      });
-      res.json({ success: true, intelligence });
-    } catch (err: any) {
-      console.error('Error analyzing project intelligence:', err);
-      const message = String(err?.message || 'Gagal menganalisis Project Intelligence.');
-      const userMessage = message.includes('GEMINI_API_KEY')
-        ? message
-        : message.includes('JSON')
-          ? 'Analisis selesai tetapi format respons AI tidak valid. Silakan coba kembali atau gunakan link resmi lain.'
-          : 'Project belum dapat dianalisis. Periksa apakah URL bersifat publik, lalu coba kembali.';
-      res.status(502).json({ success: false, error: userMessage, detail: message });
-    }
   });
 
   // 2c. Full pipeline diagnostic battery

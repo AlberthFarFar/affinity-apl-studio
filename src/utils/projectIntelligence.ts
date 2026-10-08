@@ -1,4 +1,4 @@
-import type { ConfidenceLevel, ProjectIntelligence, ProjectSource } from '../types/projectIntelligence';
+import type { ConfidenceLevel, ProjectIntelligence, ProjectSource } from '../types/projectIntelligence.ts';
 
 const SOURCE_WEIGHT: Record<ProjectSource['sourceType'], number> = {
   official: 6, brochure: 5, 'official-social': 4, news: 3, 'property-portal': 2, secondary: 1, unknown: 0,

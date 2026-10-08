@@ -1,14 +1,34 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
-import path from 'path';
-import {defineConfig} from 'vite';
+import express from 'express';
+import {defineConfig, loadEnv, type Plugin} from 'vite';
+import { createProjectIntelligenceRouter } from './server/projectIntelligenceRoute.ts';
 
-export default defineConfig(() => {
+function projectIntelligenceApi(apiKey: string): Plugin {
+  const apiApp = express();
+  apiApp.use('/api/project-intelligence', createProjectIntelligenceRouter({ apiKey }));
   return {
-    plugins: [react(), tailwindcss()],
+    name: 'affinity-project-intelligence-api',
+    configureServer(server) {
+      server.middlewares.use(apiApp as any);
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use(apiApp as any);
+    },
+  };
+}
+
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '');
+  return {
+    plugins: [
+      projectIntelligenceApi(env.GEMINI_API_KEY || env.GOOGLE_API_KEY || ''),
+      react(),
+      tailwindcss(),
+    ],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': import.meta.dirname,
       },
     },
     server: {

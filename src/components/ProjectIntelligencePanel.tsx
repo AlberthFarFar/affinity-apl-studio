@@ -9,6 +9,18 @@ interface Props {
 
 const confidenceClass = (confidence: string) => confidence === 'high' ? 'bg-emerald-100 text-emerald-800' : confidence === 'medium' ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800';
 
+async function readApiResponse(response: Response) {
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.toLowerCase().includes('application/json')) {
+    throw new Error(
+      response.status === 404
+        ? 'Layanan Project Intelligence belum tersedia. Jalankan Affinity melalui server aplikasi, bukan sebagai situs statis.'
+        : 'Server mengembalikan respons yang tidak valid. Muat ulang aplikasi lalu coba kembali.',
+    );
+  }
+  return response.json();
+}
+
 export function ProjectIntelligencePanel({ projectName, onApply }: Props) {
   const [clusterName, setClusterName] = useState('');
   const [unitType, setUnitType] = useState('');
@@ -26,7 +38,7 @@ export function ProjectIntelligencePanel({ projectName, onApply }: Props) {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ projectName, clusterName, unitType, urls: urls.filter(Boolean), discover }),
       });
-      const json = await response.json();
+      const json = await readApiResponse(response);
       if (!response.ok || !json.success) throw new Error(json.error || 'Analisis Project Intelligence gagal.');
       setStatus('Building Visual DNA');
       setResult(json.intelligence);
