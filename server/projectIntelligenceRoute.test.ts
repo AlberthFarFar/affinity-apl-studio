@@ -27,7 +27,7 @@ test('Project Intelligence API returns JSON and normalized input', async () => {
   let received: any;
   await withApi(async (input) => {
     received = input;
-    return { project: { name: input.projectName } };
+    return { project: { name: input.projectName }, identityMatch: { projectMatch: 100 }, visualDNA: { materials: [], primaryAnchors: [] } };
   }, async (baseUrl) => {
     const response = await fetch(`${baseUrl}/api/project-intelligence/analyze`, {
       method: 'POST',
@@ -43,7 +43,8 @@ test('Project Intelligence API returns JSON and normalized input', async () => {
     assert.match(response.headers.get('content-type') || '', /application\/json/);
     assert.deepEqual(await response.json(), {
       success: true,
-      intelligence: { project: { name: 'Emory' } },
+      apiVersion: 1,
+      intelligence: { project: { name: 'Emory' }, identityMatch: { projectMatch: 100 }, visualDNA: { materials: [], primaryAnchors: [] } },
     });
   });
   assert.equal(received.projectName, 'Emory');
@@ -58,7 +59,10 @@ test('Project Intelligence accepts a domain without a scheme and rejects unsafe 
   assert.equal(normalizeProjectUrl('not a website'), null);
 
   let received: any;
-  await withApi(async (input) => { received = input; return {}; }, async (baseUrl) => {
+  await withApi(async (input) => {
+    received = input;
+    return { project: { name: input.projectName }, identityMatch: { projectMatch: 100 }, visualDNA: { materials: [], primaryAnchors: [] } };
+  }, async (baseUrl) => {
     const response = await fetch(`${baseUrl}/api/project-intelligence/analyze`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ projectName: 'Emory', urls: ['www.parklandpodomoro.com'] }),
@@ -141,5 +145,25 @@ test('Project Intelligence API never returns HTML for validation failures', asyn
     assert.equal(malformed.status, 400);
     assert.match(malformed.headers.get('content-type') || '', /application\/json/);
     assert.deepEqual(await malformed.json(), { success: false, error: 'Request JSON tidak valid.' });
+  });
+});
+
+test('Project Intelligence API exposes readiness and rejects incomplete success payloads', async () => {
+  await withApi(async () => ({ project: { name: 'Emory' } }), async (baseUrl) => {
+    const health = await fetch(`${baseUrl}/api/project-intelligence/health`);
+    assert.equal(health.status, 200);
+    assert.deepEqual(await health.json(), { success: true, service: 'project-intelligence', apiVersion: 1 });
+
+    const incomplete = await fetch(`${baseUrl}/api/project-intelligence/analyze`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectName: 'Emory' }),
+    });
+    assert.equal(incomplete.status, 502);
+    assert.equal((await incomplete.json()).code, 'AI_INVALID_RESPONSE');
+
+    const missing = await fetch(`${baseUrl}/api/project-intelligence/missing`);
+    assert.equal(missing.status, 404);
+    assert.match(missing.headers.get('content-type') || '', /application\/json/);
+    assert.equal((await missing.json()).code, 'API_ROUTE_NOT_FOUND');
   });
 });

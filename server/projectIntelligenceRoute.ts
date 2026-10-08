@@ -10,6 +10,17 @@ interface ProjectIntelligenceRouterOptions {
   apiKey?: string;
 }
 
+function hasProjectIntelligenceShape(value: any): boolean {
+  return Boolean(
+    value
+    && typeof value === 'object'
+    && !Array.isArray(value)
+    && value.project
+    && value.identityMatch
+    && value.visualDNA,
+  );
+}
+
 export function normalizeProjectUrl(value: string): string | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
@@ -29,6 +40,17 @@ export function createProjectIntelligenceRouter(options: ProjectIntelligenceRout
 
   // Vite preview can mount this router without the parent Express body parser.
   router.use(express.json({ limit: '1mb' }));
+  router.use((_req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    next();
+  });
+
+  router.get('/health', (_req, res) => res.json({
+    success: true,
+    service: 'project-intelligence',
+    apiVersion: 1,
+  }));
 
   router.post('/analyze', async (req, res) => {
     const { projectName, clusterName, unitType, urls, discover } = req.body || {};
@@ -56,7 +78,15 @@ export function createProjectIntelligenceRouter(options: ProjectIntelligenceRout
         urls: suppliedUrls.filter((url): url is string => Boolean(url)),
         discover: Boolean(discover),
       });
-      return res.json({ success: true, intelligence });
+      if (!hasProjectIntelligenceShape(intelligence)) {
+        return res.status(502).json({
+          success: false,
+          error: 'Layanan AI mengembalikan hasil Project Intelligence yang tidak lengkap. Silakan coba kembali.',
+          code: 'AI_INVALID_RESPONSE',
+          retryable: true,
+        });
+      }
+      return res.json({ success: true, apiVersion: 1, intelligence });
     } catch (err: unknown) {
       const error = describeAIError(err);
       console.info('Project Intelligence failed:', { code: error.code, status: error.status, requestId: error.requestId });
@@ -74,6 +104,13 @@ export function createProjectIntelligenceRouter(options: ProjectIntelligenceRout
     }
     return next(err);
   });
+
+  // Never let an SPA HTML fallback masquerade as a successful API response.
+  router.use((_req, res) => res.status(404).json({
+    success: false,
+    error: 'Route Project Intelligence tidak ditemukan pada versi backend ini.',
+    code: 'API_ROUTE_NOT_FOUND',
+  }));
 
   return router;
 }

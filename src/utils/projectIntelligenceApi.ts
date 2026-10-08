@@ -5,6 +5,17 @@ export class ProjectIntelligenceApiError extends Error {
   }
 }
 
+function hasProjectIntelligenceShape(value: any): boolean {
+  return Boolean(
+    value
+    && typeof value === 'object'
+    && !Array.isArray(value)
+    && value.project
+    && value.identityMatch
+    && value.visualDNA,
+  );
+}
+
 export async function readProjectIntelligenceResponse(response: Response) {
   // Some preview proxies change Content-Type. Parse the body once, but never
   // display raw HTML or a gateway response as an application error message.
@@ -19,7 +30,7 @@ export async function readProjectIntelligenceResponse(response: Response) {
         typeof data.requestId === 'string' ? data.requestId : undefined,
       );
     }
-    if (data.success === true && data.intelligence?.project && data.intelligence?.identityMatch && data.intelligence?.visualDNA) return data;
+    if (data.success === true && hasProjectIntelligenceShape(data.intelligence)) return data;
   }
   const messages: Record<number, string> = {
     401: 'Akses API ditolak (HTTP 401). Periksa autentikasi aplikasi dan konfigurasi FAL_KEY pada server.',
@@ -30,5 +41,11 @@ export async function readProjectIntelligenceResponse(response: Response) {
     503: 'Layanan AI atau server aplikasi belum tersedia (HTTP 503). Periksa Diagnostik dan log backend.',
     504: 'Permintaan AI melewati batas waktu (HTTP 504). Coba kembali beberapa saat lagi.',
   };
+  if (response.ok) {
+    throw new ProjectIntelligenceApiError(
+      'Endpoint Project Intelligence belum aktif pada server ini (HTTP 200 berisi halaman aplikasi atau payload lama). Build dan jalankan backend terbaru, lalu deploy frontend dan backend dari commit yang sama.',
+      'API_ROUTE_UNAVAILABLE',
+    );
+  }
   throw new ProjectIntelligenceApiError(messages[response.status] || `Respons API tidak sesuai format (HTTP ${response.status}). Periksa apakah versi frontend dan backend sama serta server aplikasi aktif.`);
 }

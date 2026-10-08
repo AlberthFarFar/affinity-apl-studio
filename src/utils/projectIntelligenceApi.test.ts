@@ -15,6 +15,16 @@ test('HTML and malformed JSON show HTTP-specific guidance without echoing HTML',
       return true;
     });
   }
-  await assert.rejects(readProjectIntelligenceResponse(new Response('{', { headers: { 'Content-Type': 'application/json' } })), /Respons API tidak sesuai format/);
-  await assert.rejects(readProjectIntelligenceResponse(Response.json({ success: true })), /Respons API tidak sesuai format/);
+  for (const response of [
+    new Response('{', { headers: { 'Content-Type': 'application/json' } }),
+    new Response('<!doctype html><title>Affinity</title>', { headers: { 'Content-Type': 'text/html' } }),
+    Response.json({ success: true }),
+  ]) {
+    await assert.rejects(readProjectIntelligenceResponse(response), (error: any) => {
+      assert.equal(error.code, 'API_ROUTE_UNAVAILABLE');
+      assert.match(error.message, /Endpoint Project Intelligence belum aktif/);
+      assert.doesNotMatch(error.message, /doctype|<title>/i);
+      return true;
+    });
+  }
 });
