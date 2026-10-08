@@ -1,5 +1,4 @@
 import express from 'express';
-import { describeAIError } from './aiErrors.ts';
 import { analyzeProjectIntelligence } from './projectIntelligence.ts';
 import type { ProjectIntelligenceInput } from '../src/types/projectIntelligence.ts';
 
@@ -10,90 +9,46 @@ interface ProjectIntelligenceRouterOptions {
   apiKey?: string;
 }
 
-function hasProjectIntelligenceShape(value: any): boolean {
-  return Boolean(
-    value
-    && typeof value === 'object'
-    && !Array.isArray(value)
-    && value.project
-    && value.identityMatch
-    && value.visualDNA,
-  );
-}
-
-export function normalizeProjectUrl(value: string): string | null {
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  const candidate = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
-  try {
-    const url = new URL(candidate);
-    if (!['http:', 'https:'].includes(url.protocol) || !url.hostname.includes('.') || Boolean(url.username) || Boolean(url.password)) return null;
-    return url.toString();
-  } catch {
-    return null;
-  }
-}
-
 export function createProjectIntelligenceRouter(options: ProjectIntelligenceRouterOptions = {}) {
   const router = express.Router();
-  const analyze = options.analyze || ((input) => analyzeProjectIntelligence(input, { apiKey: options.apiKey }));
+  const analyze = options.analyze || ((input) => analyzeProjectIntelligence(input, options.apiKey));
 
   // Vite preview can mount this router without the parent Express body parser.
   router.use(express.json({ limit: '1mb' }));
-  router.use((_req, res, next) => {
-    res.setHeader('Cache-Control', 'no-store');
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    next();
-  });
-
-  router.get('/health', (_req, res) => res.json({
-    success: true,
-    service: 'project-intelligence',
-    apiVersion: 1,
-  }));
 
   router.post('/analyze', async (req, res) => {
     const { projectName, clusterName, unitType, urls, discover } = req.body || {};
-    if (typeof projectName !== 'string' || !projectName.trim()) {
-      return res.status(400).json({ success: false, error: 'Nama project wajib diisi sebelum dianalisis.' });
-    }
-
-    const rawUrls = Array.isArray(urls)
-      ? urls.filter((url): url is string => typeof url === 'string' && Boolean(url.trim()))
+    const suppliedUrls = Array.isArray(urls)
+      ? urls.filter((url) => typeof url === 'string' && url.trim())
       : [];
-    const suppliedUrls = rawUrls.map(normalizeProjectUrl);
-    const invalidUrl = rawUrls.find((_url, index) => !suppliedUrls[index]);
+    const invalidUrl = suppliedUrls.find((url) => !/^https?:\/\//i.test(url));
     if (invalidUrl) {
       return res.status(400).json({
         success: false,
-        error: `URL tidak valid: ${invalidUrl}. Masukkan alamat domain atau URL publik yang valid.`,
+        error: `URL tidak valid: ${invalidUrl}. Gunakan URL publik yang diawali http:// atau https://.`,
       });
     }
+    if (!suppliedUrls.length) return res.status(400).json({ success: false, error: 'Masukkan minimal satu URL sumber publik.' });
+    if (suppliedUrls.length > 3) return res.status(400).json({ success: false, error: 'Maksimal 3 URL sumber.' });
 
     try {
       const intelligence = await analyze({
-        projectName: projectName.trim(),
+        projectName: typeof projectName === 'string' ? projectName.trim() : '',
         clusterName: typeof clusterName === 'string' ? clusterName.trim() : undefined,
         unitType: typeof unitType === 'string' ? unitType.trim() : undefined,
-        urls: suppliedUrls.filter((url): url is string => Boolean(url)),
+        urls: suppliedUrls,
         discover: Boolean(discover),
       });
-      if (!hasProjectIntelligenceShape(intelligence)) {
-        return res.status(502).json({
-          success: false,
-          error: 'Layanan AI mengembalikan hasil Project Intelligence yang tidak lengkap. Silakan coba kembali.',
-          code: 'AI_INVALID_RESPONSE',
-          retryable: true,
-        });
-      }
-      return res.json({ success: true, apiVersion: 1, intelligence });
-    } catch (err: unknown) {
-      const error = describeAIError(err);
-      console.info('Project Intelligence failed:', { code: error.code, status: error.status, requestId: error.requestId });
-      return res.status(error.status).json({
-        success: false, error: error.message, code: error.code,
-        retryable: error.retryable, requestId: error.requestId,
-      });
+      return res.json({ success: true, intelligence });
+    } catch (err: any) {
+      console.error('Error analyzing project intelligence:', err);
+      const message = String(err?.message || 'Gagal menganalisis Project Intelligence.');
+      const userMessage = message.includes('GEMINI_API_KEY')
+        ? message
+        : message.includes('JSON')
+          ? 'Analisis selesai tetapi format respons AI tidak valid. Silakan coba kembali atau gunakan link resmi lain.'
+          : 'Project belum dapat dianalisis. Periksa apakah URL bersifat publik, lalu coba kembali.';
+      return res.status(502).json({ success: false, error: userMessage, detail: message });
     }
   });
 
@@ -104,13 +59,6 @@ export function createProjectIntelligenceRouter(options: ProjectIntelligenceRout
     }
     return next(err);
   });
-
-  // Never let an SPA HTML fallback masquerade as a successful API response.
-  router.use((_req, res) => res.status(404).json({
-    success: false,
-    error: 'Route Project Intelligence tidak ditemukan pada versi backend ini.',
-    code: 'API_ROUTE_NOT_FOUND',
-  }));
 
   return router;
 }

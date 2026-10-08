@@ -1,85 +1,83 @@
-import React, { useState } from 'react';
-import { CheckCircle, Link2, Loader2, Search, Sparkles, XCircle } from 'lucide-react';
+import React, { useRef, useState } from 'react';
+import { CheckCircle, Link2, Loader2, RotateCcw, Sparkles, XCircle } from 'lucide-react';
 import type { ProjectIntelligence } from '../types/projectIntelligence';
-import { ProjectIntelligenceApiError, readProjectIntelligenceResponse } from '../utils/projectIntelligenceApi';
 
-interface Props {
-  projectName: string;
-  onApply: (intelligence: ProjectIntelligence) => void;
+interface Props { projectName: string; onApply: (intelligence: ProjectIntelligence) => void }
+type UiState = 'idle' | 'fetching' | 'checking' | 'filling' | 'success' | 'partial' | 'empty' | 'error';
+
+async function readApiResponse(response: Response) {
+  if (!(response.headers.get('content-type') || '').toLowerCase().includes('application/json')) throw new Error('Server mengembalikan respons yang tidak valid.');
+  return response.json();
 }
 
-const confidenceClass = (confidence: string) => confidence === 'high' ? 'bg-emerald-100 text-emerald-800' : confidence === 'medium' ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800';
-
-function normalizeUrlForRequest(value: string): string {
-  const trimmed = value.trim();
-  return trimmed && !/^https?:\/\//i.test(trimmed) ? `https://${trimmed}` : trimmed;
-}
+const statusLabel: Partial<Record<UiState, string>> = {
+  fetching: 'Mengambil data', checking: 'Memeriksa fakta', filling: 'Mengisi kolom', success: 'Kolom berhasil diisi', partial: 'Sebagian fakta berhasil diisi', empty: 'Tidak ada fakta yang cocok', error: 'Gagal membaca sumber',
+};
 
 export function ProjectIntelligencePanel({ projectName, onApply }: Props) {
   const [clusterName, setClusterName] = useState('');
   const [unitType, setUnitType] = useState('');
   const [urls, setUrls] = useState<string[]>(['']);
-  const [status, setStatus] = useState<string | null>(null);
+  const [state, setState] = useState<UiState>('idle');
   const [result, setResult] = useState<ProjectIntelligence | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [errorCode, setErrorCode] = useState<string | undefined>();
-  const [requestId, setRequestId] = useState<string | undefined>();
+  const requestRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
 
-  const analyze = async (discover: boolean) => {
-    setErrorCode(undefined); setRequestId(undefined);
-    if (!projectName.trim()) { setError('Isi Nama Proyek terlebih dahulu.'); return; }
-    setError(null); setResult(null); setStatus(discover ? 'Building a broader concept draft' : 'Reading project information');
+  const analyze = async () => {
+    const sources = urls.map((url) => url.trim()).filter(Boolean).slice(0, 3);
+    if (!sources.length) { setError('Masukkan minimal satu URL sumber publik.'); setState('error'); return; }
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const requestId = ++requestRef.current;
+    setError(null); setResult(null); setState('fetching');
     try {
-      setStatus('Matching project, cluster, and unit');
       const response = await fetch('/api/project-intelligence/analyze', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectName, clusterName, unitType, urls: urls.filter(Boolean).map(normalizeUrlForRequest), discover }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controller.signal,
+        body: JSON.stringify({ projectName, clusterName, unitType, urls: sources, discover: false }),
       });
-      const json = await readProjectIntelligenceResponse(response);
-      setStatus('Building Visual DNA');
-      setResult(json.intelligence);
-      setStatus('Ready');
+      const json = await readApiResponse(response);
+      if (requestId !== requestRef.current) return;
+      if (!response.ok || !json.success) throw new Error(json.error || 'Auto-isi AI Link gagal.');
+      setState('checking');
+      await Promise.resolve();
+      if (requestId !== requestRef.current) return;
+      const intelligence: ProjectIntelligence = json.intelligence;
+      const filled = Object.values(intelligence.autofill || {}).filter((value) => typeof value === 'string' && value.trim()).length;
+      setResult(intelligence);
+      if (!filled) { setState('empty'); return; }
+      setState('filling');
+      onApply(intelligence);
+      setState(intelligence.warnings?.length ? 'partial' : 'success');
     } catch (err: any) {
-      setStatus(null); setError(err?.message || 'Project belum dapat dianalisis.');
-      if (err instanceof ProjectIntelligenceApiError) {
-        setErrorCode(err.code); setRequestId(err.requestId);
-      }
+      if (err?.name === 'AbortError' || requestId !== requestRef.current) return;
+      setError(err?.message || 'Sumber tidak dapat dibaca.'); setState('error');
     }
   };
 
+  const busy = ['fetching', 'checking', 'filling'].includes(state);
   return <section className="bg-white rounded-2xl shadow-xs border border-slate-200/90 p-5 sm:p-7">
     <div className="flex items-start gap-3 border-b border-slate-100 pb-4 mb-4">
       <div className="p-2 rounded-xl bg-violet-50 text-violet-700"><Sparkles className="w-5 h-5" /></div>
-      <div><h2 className="text-base sm:text-lg font-bold text-slate-900">Auto-isi Konsep dengan AI</h2><p className="text-xs text-slate-500 mt-1">AI menyusun draft dari nama proyek, cluster, tipe unit, dan tautan rujukan. Tautan tidak dibuka otomatis; tinjau fakta sebelum menerapkan hasil.</p></div>
+      <div><h2 className="text-base sm:text-lg font-bold text-slate-900">AI Link — Auto-isi Fakta</h2><p className="text-xs text-slate-500 mt-1">Membaca maksimal 3 halaman sumber dan hanya mengisi kolom yang masih kosong.</p></div>
     </div>
     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
       <label className="text-xs font-semibold text-slate-700">Cluster<input value={clusterName} onChange={(e) => setClusterName(e.target.value)} placeholder="Cth: Cluster Akasia" className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" /></label>
       <label className="text-xs font-semibold text-slate-700">Unit / Type<input value={unitType} onChange={(e) => setUnitType(e.target.value)} placeholder="Cth: Tipe 45/90" className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" /></label>
     </div>
     <div className="mt-3 space-y-2">
-      <span className="text-xs font-semibold text-slate-700">Project URL</span>
-      {urls.map((url, index) => <div key={index} className="flex gap-2"><input value={url} onChange={(e) => setUrls(urls.map((value, itemIndex) => itemIndex === index ? e.target.value : value))} placeholder="https://..." className="flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm" />{urls.length > 1 && <button onClick={() => setUrls(urls.filter((_, itemIndex) => itemIndex !== index))} className="text-xs text-rose-600">Hapus</button>}</div>)}
-      <button onClick={() => setUrls([...urls, ''])} className="text-xs font-semibold text-violet-700">+ Tambah Link</button>
+      <span className="text-xs font-semibold text-slate-700">URL sumber</span>
+      {urls.map((url, index) => <div key={index} className="flex gap-2"><input value={url} onChange={(e) => setUrls(urls.map((value, itemIndex) => itemIndex === index ? e.target.value : value))} placeholder="https://..." className="flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm" />{urls.length > 1 && <button type="button" onClick={() => setUrls(urls.filter((_, itemIndex) => itemIndex !== index))} className="text-xs text-rose-600">Hapus</button>}</div>)}
+      {urls.length < 3 && <button type="button" onClick={() => setUrls([...urls, ''])} className="text-xs font-semibold text-violet-700">+ Tambah Link</button>}
     </div>
-    <div className="flex flex-wrap gap-2 mt-4">
-      <button onClick={() => analyze(false)} disabled={!!status && status !== 'Ready'} className="px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:bg-slate-200 text-white text-sm font-bold flex items-center gap-2"><Link2 className="w-4 h-4" /> Analisis Project dengan AI</button>
-      <button onClick={() => analyze(true)} disabled={!!status && status !== 'Ready'} className="px-4 py-2 rounded-xl border border-violet-200 text-violet-700 hover:bg-violet-50 disabled:text-slate-400 text-sm font-bold flex items-center gap-2"><Search className="w-4 h-4" /> Buat Draft Konsep</button>
-      {status && <span className="text-xs text-slate-500 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> {status}</span>}
+    <div className="flex flex-wrap items-center gap-2 mt-4">
+      <button type="button" onClick={analyze} disabled={busy} className="px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:bg-slate-300 text-white text-sm font-bold flex items-center gap-2"><Link2 className="w-4 h-4" /> Auto-isi dari Link</button>
+      {state === 'error' && <button type="button" onClick={analyze} className="px-3 py-2 rounded-xl border border-slate-300 text-sm font-semibold flex items-center gap-2"><RotateCcw className="w-4 h-4" /> Coba lagi</button>}
+      {statusLabel[state] && <span role="status" aria-live="polite" className="text-xs text-slate-600 flex items-center gap-2">{busy ? <Loader2 className="w-4 h-4 animate-spin" /> : state === 'error' ? <XCircle className="w-4 h-4 text-rose-600" /> : <CheckCircle className="w-4 h-4 text-teal-600" />}{statusLabel[state]}</span>}
     </div>
-    {error && <div role="alert" className="mt-4 text-xs rounded-lg bg-rose-50 text-rose-700 p-3">
-      <p><XCircle className="w-4 h-4 inline mr-1" />{error}</p>
-      {requestId && <p className="mt-2">ID permintaan untuk dukungan: {requestId}</p>}
-      {['AI_PROVIDER_POLICY_BLOCKED', 'AI_PROVIDER_FORBIDDEN'].includes(errorCode || '') && <a href="mailto:support@fal.ai" className="inline-block mt-2 underline font-semibold">Hubungi dukungan fal.ai</a>}
-    </div>}
-    {result && <div className="mt-5 rounded-xl border border-teal-200 bg-teal-50/40 p-4 text-sm">
-      <div className="flex flex-wrap items-center gap-2"><CheckCircle className="w-5 h-5 text-teal-600" /><strong>Project Intelligence siap ditinjau</strong><span className={`uppercase text-[10px] font-bold px-2 py-0.5 rounded-full ${confidenceClass(result.identityMatch.confidence)}`}>Confidence: {result.identityMatch.confidence}</span></div>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-3 text-xs"><span>Project matched: {result.identityMatch.projectMatch}%</span><span>Cluster matched: {result.identityMatch.clusterMatch ?? '—'}{typeof result.identityMatch.clusterMatch === 'number' ? '%' : ''}</span><span>Unit matched: {result.identityMatch.unitMatch ?? '—'}{typeof result.identityMatch.unitMatch === 'number' ? '%' : ''}</span></div>
-      {result.visualDNA.architecturalCharacter && <p className="mt-3"><strong>Architectural Character:</strong> {result.visualDNA.architecturalCharacter}</p>}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3 text-xs"><div><strong>Primary Visual DNA</strong><ul className="list-disc ml-4 mt-1">{result.visualDNA.primaryAnchors.slice(0, 4).map((item) => <li key={item}>{item}</li>)}</ul></div><div><strong>Material Palette</strong><ul className="list-disc ml-4 mt-1">{result.visualDNA.materials.slice(0, 4).map((item) => <li key={item}>{item}</li>)}</ul></div></div>
-      {result.environment?.siteCharacter && <p className="mt-3 text-xs"><strong>Environment:</strong> {result.environment.siteCharacter}</p>}
-      <p className="mt-3 text-xs"><strong>Sources:</strong> {result.sources.length ? result.sources.map((source) => source.title || source.url).join(' • ') : 'Tidak ada sumber yang cukup kuat; gunakan hasil sebagai draft.'}</p>
-      {result.warnings?.map((warning) => <p key={warning} className="mt-2 text-xs text-amber-800">{warning}</p>)}
-      <button onClick={() => onApply(result)} className="mt-4 px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-sm font-bold">Apply to Project</button>
-    </div>}
+    {error && <p className="mt-3 text-xs rounded-lg bg-rose-50 text-rose-700 p-3">{error}</p>}
+    {result?.warnings?.map((warning) => <p key={warning} className="mt-2 text-xs text-amber-800">{warning}</p>)}
+    {result && <p className="mt-3 text-xs text-slate-500">Sumber: {result.sources.map((source) => source.title || source.url).join(' • ')}</p>}
   </section>;
 }
