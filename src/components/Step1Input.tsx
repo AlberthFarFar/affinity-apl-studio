@@ -14,11 +14,20 @@ import {
   Loader2,
   AlertCircle,
 } from 'lucide-react';
-import { AIImageSource, ProjectData } from '../types';
+import { AIImageSource, ImageCropMetadata, ProjectData } from '../types';
 import { SAMPLE_PRESETS } from '../utils/presets';
 import { createMasterAIImage, readImageAsDataUrl } from '../utils/imageProcessing';
 import { ProjectIntelligencePanel } from './ProjectIntelligencePanel';
 import type { ProjectIntelligence } from '../types/projectIntelligence';
+import { ImageCropModal } from './image-crop/ImageCropModal';
+
+type ReferenceRole = 'property' | 'style';
+type CropQueueItem = {
+  file: File;
+  role: ReferenceRole;
+  previousMasterAIImage?: string;
+  initialCrop?: ImageCropMetadata;
+};
 
 interface Step1InputProps {
   project: ProjectData;
@@ -59,6 +68,9 @@ export const Step1Input: React.FC<Step1InputProps> = ({
   const logoInputRef = useRef<HTMLInputElement>(null);
 
   const originalImagesRef = useRef(new Map<string, File>());
+  const referenceSourcesRef = useRef(new Map<string, AIImageSource>());
+  const [cropQueue, setCropQueue] = useState<CropQueueItem[]>([]);
+  const [cropQueueTotal, setCropQueueTotal] = useState(0);
   const [isPreparingImages, setIsPreparingImages] = useState(false);
   const [uploadStatusText, setUploadStatusText] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -69,8 +81,74 @@ export const Step1Input: React.FC<Step1InputProps> = ({
     }
   }, []);
 
-  // A local object URL is inserted before processing so users see their photo
-  // immediately. It is then atomically replaced with masterAIImage.
+  const currentCrop = cropQueue[0];
+
+  const advanceCropQueue = () => setCropQueue((queue) => queue.slice(1));
+
+  const addOrReplaceReference = async (
+    item: CropQueueItem,
+    crop: ImageCropMetadata,
+    croppedImage: File,
+  ) => {
+    setIsPreparingImages(true);
+    setUploadError(null);
+    try {
+      setUploadStatusText(`Mengoptimalkan master AI dari crop (${item.file.name})...`);
+      const masterAIImage = await createMasterAIImage(croppedImage);
+      const source: AIImageSource = {
+        originalImage: item.file,
+        croppedImage: masterAIImage,
+        crop,
+        masterAIImage,
+        role: item.role,
+      };
+      const setImages = item.role === 'property' ? setPropertyImages : setStyleImages;
+
+      if (item.previousMasterAIImage) {
+        setImages((images) => images.map((image) => image === item.previousMasterAIImage ? masterAIImage : image));
+        setOriginalImages((images) => images.map((image) => image.masterAIImage === item.previousMasterAIImage ? source : image));
+        originalImagesRef.current.delete(item.previousMasterAIImage);
+        referenceSourcesRef.current.delete(item.previousMasterAIImage);
+      } else {
+        setImages((images) => [...images, masterAIImage]);
+        setOriginalImages((images) => [...images, source]);
+      }
+
+      originalImagesRef.current.set(masterAIImage, item.file);
+      referenceSourcesRef.current.set(masterAIImage, source);
+      advanceCropQueue();
+    } catch (err: any) {
+      const message = err?.message || 'Gagal membuat master AI dari hasil crop.';
+      setUploadError(message);
+      throw new Error(message);
+    } finally {
+      setIsPreparingImages(false);
+      setUploadStatusText(null);
+    }
+  };
+
+  const openCropEditor = (role: ReferenceRole, files: File[]) => {
+    const validFiles = files.filter((file) => file.type.startsWith('image/'));
+    if (validFiles.length === 0) {
+      setUploadError('Pilih gambar JPG, PNG, atau WebP yang valid.');
+      return;
+    }
+    setUploadError(null);
+    setCropQueueTotal(validFiles.length);
+    setCropQueue(validFiles.map((file) => ({ file, role })));
+  };
+
+  const editReferenceCrop = (role: ReferenceRole, masterAIImage: string) => {
+    const source = referenceSourcesRef.current.get(masterAIImage);
+    if (!source) {
+      setUploadError('Gambar asli untuk crop ulang tidak tersedia. Unggah ulang gambar ini.');
+      return;
+    }
+    setUploadError(null);
+    setCropQueueTotal(1);
+    setCropQueue([{ file: source.originalImage, role, previousMasterAIImage: masterAIImage, initialCrop: source.crop }]);
+  };
+
   const handleImageUpload = async (
     e: React.ChangeEvent<HTMLInputElement>,
     type: 'property' | 'style' | 'talent' | 'logo'
@@ -78,31 +156,13 @@ export const Step1Input: React.FC<Step1InputProps> = ({
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    setIsPreparingImages(true);
     setUploadError(null);
 
     try {
       if (type === 'property' || type === 'style') {
-        const fileList = Array.from(files).filter((f) => f.type.startsWith('image/'));
-
-        for (let i = 0; i < fileList.length; i++) {
-          const file = fileList[i];
-          const previewUrl = URL.createObjectURL(file);
-          originalImagesRef.current.set(previewUrl, file);
-          const setImages = type === 'property' ? setPropertyImages : setStyleImages;
-          setImages((prev) => [...prev, previewUrl]);
-
-          setUploadStatusText(`Menyiapkan gambar ${i + 1}/${fileList.length} (${file.name})...`);
-          const masterAIImage = await createMasterAIImage(file);
-          setUploadStatusText(`Mengoptimalkan master AI ${i + 1}/${fileList.length} tanpa crop...`);
-
-          setImages((prev) => prev.map((image) => image === previewUrl ? masterAIImage : image));
-          originalImagesRef.current.delete(previewUrl);
-          originalImagesRef.current.set(masterAIImage, file);
-          setOriginalImages((prev) => [...prev, { originalImage: file, masterAIImage, role: type }]);
-          URL.revokeObjectURL(previewUrl);
-        }
+        openCropEditor(type, Array.from(files));
       } else if (type === 'talent') {
+        setIsPreparingImages(true);
         const file = files[0];
         if (file && file.type.startsWith('image/')) {
           setUploadStatusText(`Mengoptimalkan foto talent (${file.name})...`);
@@ -111,6 +171,7 @@ export const Step1Input: React.FC<Step1InputProps> = ({
           setOriginalImages((prev) => [...prev, { originalImage: file, masterAIImage, role: 'talent' }]);
         }
       } else if (type === 'logo') {
+        setIsPreparingImages(true);
         const file = files[0];
         if (file && file.type.startsWith('image/')) {
           setUploadStatusText(`Menyiapkan logo brand (${file.name})...`);
@@ -124,7 +185,7 @@ export const Step1Input: React.FC<Step1InputProps> = ({
       const msg = err?.message || 'Gagal menyiapkan gambar lokal.';
       setUploadError(msg);
     } finally {
-      setIsPreparingImages(false);
+      if (type !== 'property' && type !== 'style') setIsPreparingImages(false);
       setUploadStatusText(null);
       e.target.value = '';
     }
@@ -209,6 +270,16 @@ export const Step1Input: React.FC<Step1InputProps> = ({
 
   return (
     <div className="space-y-6">
+      {currentCrop && (
+        <ImageCropModal
+          file={currentCrop.file}
+          currentIndex={cropQueueTotal - cropQueue.length + 1}
+          total={cropQueueTotal}
+          initialCrop={currentCrop.initialCrop}
+          onCancel={advanceCropQueue}
+          onSave={(crop, croppedFile) => addOrReplaceReference(currentCrop, crop, croppedFile)}
+        />
+      )}
       {/* Preset Quick-Fill Banner */}
       <div className="bg-gradient-to-r from-teal-900 via-teal-800 to-slate-900 rounded-2xl p-4 sm:p-5 text-white shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div className="space-y-1">
@@ -354,6 +425,13 @@ export const Step1Input: React.FC<Step1InputProps> = ({
                           )}
                           <button
                             type="button"
+                            onClick={() => editReferenceCrop('property', img)}
+                            className="px-1.5 py-0.5 bg-white hover:bg-slate-100 text-slate-800 rounded text-[9px] font-semibold w-full"
+                          >
+                            Edit Crop
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => {
                               const target = propertyImages[idx];
                               setPropertyImages((prev) => prev.filter((_, i) => i !== idx));
@@ -450,6 +528,13 @@ export const Step1Input: React.FC<Step1InputProps> = ({
                           STYLE ONLY
                         </div>
                         <div className="absolute inset-0 bg-slate-950/60 opacity-0 group-hover/img:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1 p-1">
+                          <button
+                            type="button"
+                            onClick={() => editReferenceCrop('style', img)}
+                            className="px-1.5 py-0.5 bg-white hover:bg-slate-100 text-slate-800 rounded text-[9px] font-semibold w-full"
+                          >
+                            Edit Crop
+                          </button>
                           <button
                             type="button"
                             onClick={() => {

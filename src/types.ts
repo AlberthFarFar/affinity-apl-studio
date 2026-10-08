@@ -67,10 +67,22 @@ export type GuardStatus = 'PASS' | 'REJECT' | 'NEEDS_REVIEW' | 'NOT_VALIDATED';
 export type ReferenceRole = 'PROPERTY_REFERENCE' | 'STYLE_REFERENCE' | 'TALENT_REFERENCE';
 export type ImageGenerationEngine = 'nano-banana' | 'seedream';
 
+export interface ImageCropMetadata {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  unit: '%';
+  aspect?: number;
+}
+
 export interface AIImageSource {
   originalImage: File;
   masterAIImage: string;
   role: 'property' | 'style' | 'talent' | 'logo';
+  /** Local crop output used to create masterAIImage; originalImage is never replaced. */
+  croppedImage?: string;
+  crop?: ImageCropMetadata;
 }
 
 export interface BuildingMask {
