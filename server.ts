@@ -12,6 +12,7 @@ import {
   runFalPipelineDiagnostics,
 } from './server/diagnostics.ts';
 import { createProjectIntelligenceRouter } from './server/projectIntelligenceRoute.ts';
+import { callGPTViaFal } from './server/falOpenRouter.ts';
 import { createVisualStyleLabRouter, resolveVisualStyleLabFlags } from './server/visualStyleLab/routes.ts';
 import type { FalRunner } from './server/visualStyleLab/types.ts';
 
@@ -72,62 +73,6 @@ function classifyFalError(error: any): { code: string; message: string; userMess
     message: rawMsg,
     userMessage: 'Terjadi kendala saat menghasilkan konten. Periksa parameter permintaan.',
   };
-}
-
-// -------------------------------------------------------------
-// Helper: GPT Reasoning via fal OpenRouter
-// -------------------------------------------------------------
-async function callGPTViaFal(params: {
-  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string | any[] }>;
-  model?: string;
-  responseFormatJson?: boolean;
-}): Promise<string> {
-  const currentKey = (process.env.FAL_KEY || '').trim();
-  if (!currentKey) {
-    throw new Error('FAL_KEY belum dikonfigurasi di server environment / Secrets.');
-  }
-
-  const model = params.model || 'openai/gpt-5';
-  const url = 'https://fal.run/openrouter/router/openai/v1/chat/completions';
-
-  let lastError: any = null;
-  // Maximum 1 retry as required
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          Authorization: `Key ${currentKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model,
-          messages: params.messages,
-          response_format: params.responseFormatJson ? { type: 'json_object' } : undefined,
-        }),
-      });
-
-      if (!response.ok) {
-        const errJson = await response.json().catch(() => null);
-        const detail = errJson?.detail || errJson?.error?.message || response.statusText;
-        throw new Error(`HTTP ${response.status}: ${detail}`);
-      }
-
-      const data = await response.json();
-      const content = data.choices?.[0]?.message?.content;
-      if (content) {
-        return content;
-      }
-      throw new Error('Respons GPT tidak mengandung konten teks yang valid.');
-    } catch (err: any) {
-      lastError = err;
-      if (attempt === 0) {
-        await new Promise((r) => setTimeout(r, 1200));
-      }
-    }
-  }
-
-  throw lastError;
 }
 
 // -------------------------------------------------------------

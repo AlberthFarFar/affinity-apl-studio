@@ -10,13 +10,12 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test:project-intelligence": "tsx --test server/projectIntelligenceRoute.test.ts",
+    "test:project-intelligence": "tsx --test server/falOpenRouter.test.ts server/projectIntelligence.test.ts server/projectIntelligenceRoute.test.ts",
     "test:visual-style-lab": "tsx --test server/visualStyleLab/visualStyleLab.test.ts"
   },
   "dependencies": {
     "@fal-ai/client": "^1.10.1",
     "@fal-ai/server-proxy": "^1.2.1",
-    "@google/genai": "^2.4.0",
     "@higgsfield/client": "^0.2.6",
     "@tailwindcss/vite": "^4.3.3",
     "@vitejs/plugin-react": "^6.1.1",

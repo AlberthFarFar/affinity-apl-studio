@@ -11,7 +11,7 @@ interface ProjectIntelligenceRouterOptions {
 
 export function createProjectIntelligenceRouter(options: ProjectIntelligenceRouterOptions = {}) {
   const router = express.Router();
-  const analyze = options.analyze || ((input) => analyzeProjectIntelligence(input, options.apiKey));
+  const analyze = options.analyze || ((input) => analyzeProjectIntelligence(input, { apiKey: options.apiKey }));
 
   // Vite preview can mount this router without the parent Express body parser.
   router.use(express.json({ limit: '1mb' }));
@@ -45,7 +45,7 @@ export function createProjectIntelligenceRouter(options: ProjectIntelligenceRout
     } catch (err: any) {
       console.error('Error analyzing project intelligence:', err);
       const message = String(err?.message || 'Gagal menganalisis Project Intelligence.');
-      const userMessage = message.includes('GEMINI_API_KEY')
+      const userMessage = message.includes('FAL_KEY')
         ? message
         : message.includes('JSON')
           ? 'Analisis selesai tetapi format respons AI tidak valid. Silakan coba kembali atau gunakan link resmi lain.'

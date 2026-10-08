@@ -4,9 +4,9 @@ import express from 'express';
 import {defineConfig, loadEnv, type Plugin} from 'vite';
 import { createProjectIntelligenceRouter } from './server/projectIntelligenceRoute.ts';
 
-function projectIntelligenceApi(apiKey: string): Plugin {
+function projectIntelligenceApi(falKey: string): Plugin {
   const apiApp = express();
-  apiApp.use('/api/project-intelligence', createProjectIntelligenceRouter({ apiKey }));
+  apiApp.use('/api/project-intelligence', createProjectIntelligenceRouter({ apiKey: falKey }));
   return {
     name: 'affinity-project-intelligence-api',
     configureServer(server) {
@@ -22,7 +22,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   return {
     plugins: [
-      projectIntelligenceApi(env.GEMINI_API_KEY || env.GOOGLE_API_KEY || ''),
+      projectIntelligenceApi(env.FAL_KEY || ''),
       react(),
       tailwindcss(),
     ],
