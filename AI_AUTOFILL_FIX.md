@@ -1,10 +1,10 @@
 # Affinity: perbaikan penanganan kegagalan Auto-isi AI
 
-Paket ini memperbaiki kode aplikasi. Paket ini tidak memulihkan akses yang diblokir oleh penyedia AI.
+Paket ini memperbaiki kode aplikasi agar Auto-isi menggunakan jalur GPT yang sama dengan Diagnostik.
 
 ## Hasil penelusuran
 
-Screenshot menunjukkan HTTP 403 dengan pesan `Policy Violation: this user has been blocked for a previous policy violation` dari panggilan GPT melalui fal.ai/OpenRouter. Backend sudah mencapai layanan AI. Pesan tersebut belum menentukan akun pihak mana yang dibatasi; dukungan fal.ai perlu menelusuri jalur upstream.
+Diagnostik pada aplikasi membuktikan `FAL_KEY`, endpoint fal.ai OpenRouter, GPT-5, dan `/api/analyze-master` dapat digunakan. Error 403 hanya terjadi pada Project Intelligence. Perbedaannya adalah fitur tersebut memakai tool server OpenRouter (`web_fetch`/`web_search`) untuk mengunjungi tautan atau mencari web, sedangkan Diagnostik memakai GPT secara langsung. Jadi akses GPT utama tersedia; tool server pada jalur fal.ai/OpenRouter yang ditolak untuk permintaan ini.
 
 Kode lama mencoba ulang setiap kegagalan, kemudian mengubahnya menjadi HTTP 502 dan pesan terkait URL. Frontend menampilkan pesan umum jika Content-Type bukan JSON. Proxy yang mengubah respons 502 menjadi HTML dapat memperburuk gejala ini; dugaan perubahan oleh proxy belum diverifikasi pada hosting pengguna.
 
@@ -16,7 +16,9 @@ Log WebSocket Vite berasal dari koneksi hot reload. Log itu tidak menjelaskan pe
 - Hentikan retry otomatis pada penolakan akses, kredit, parameter, dan rate limit. Hanya kegagalan koneksi/server sementara yang dicoba sekali lagi.
 - Batasi waktu panggilan GPT agar permintaan tidak menggantung selamanya.
 - Jangan meneruskan body error mentah provider, kredensial, atau HTML ke antarmuka/log. Sertakan request ID yang valid jika disediakan provider.
-- Gunakan jalur panggilan yang sama untuk Diagnostik dan analisis. Diagnostik berikutnya dilewati jika koneksi provider gagal.
+- Project Intelligence kini memakai GPT-5 langsung tanpa `web_fetch` atau `web_search`, sama seperti Diagnostik yang sudah lulus. Ini menghilangkan pemicu 403 pada alur Auto-isi.
+- Tautan proyek dinormalisasi otomatis: `www.parklandpodomoro.com` menjadi `https://www.parklandpodomoro.com/`.
+- Tautan menjadi rujukan yang dicantumkan pada hasil, bukan diklaim telah dibaca. Model diminta membuat konsep sebagai draft dan menandai informasi yang belum dapat diverifikasi sebagai inferensi.
 - Frontend dapat membaca JSON meski header diubah proxy, dan memberi petunjuk sesuai HTTP status untuk respons HTML/rusak.
 - Tetap menggunakan `openai/gpt-5` melalui fal.ai dan secret server `FAL_KEY`. Tidak memerlukan Gemini API key.
 - Sertakan perbaikan runtime sebelumnya: `build` membangun frontend/backend, `start` dan `preview` menjalankan Express.
@@ -48,19 +50,11 @@ npm start
 
 Untuk pengembangan gunakan `npm run dev`. Pastikan hosting menjalankan server Node/Express, bukan hanya folder statis `dist`. Terapkan/restart versi backend dan frontend bersama-sama.
 
-5. Buka Auto-isi AI. Jika provider masih memblokir, tampilan seharusnya menjelaskan penolakan HTTP 403 dan menawarkan tautan dukungan. Jangan menganggap ini tanda bahwa pembatasan provider sudah pulih.
-6. Setelah dukungan fal.ai memulihkan akses, jalankan Diagnostik dan ulangi analisis URL atau pencarian. Kedua tombol menghasilkan draft untuk ditinjau sebelum Apply to Project.
+5. Buka Auto-isi AI dan masukkan nama proyek, cluster, serta tipe unit. Domain tanpa protokol juga diterima. Pilih **Analisis Project dengan AI** atau **Buat Draft Konsep**, lalu tinjau dan Apply to Project.
+6. Kedua tombol sekarang membuat draft langsung dengan GPT. Bila membaca situs atau pencarian web diperlukan lagi, fitur itu perlu provider retrieval terpisah yang sudah disetujui untuk akun Anda.
 
 ## Pengujian
 
-15 pengujian Auto-isi/Diagnostik dan 7 pengujian Visual Style lulus, termasuk simulasi provider 403 melalui fungsi GPT, analisis, HTTP route, hingga parser frontend; jalur sukses; tidak ada retry pada 401/402/403/429; retry pada gangguan sementara; HTML; respons rusak; dan timeout. TypeScript serta build produksi lulus. Pengujian menggunakan respons provider simulasi, bukan panggilan berbayar ke akun pengguna. Keberhasilan AI di hosting pengguna belum diverifikasi.
+16 pengujian Auto-isi/Diagnostik dan 7 pengujian Visual Style lulus, termasuk jalur GPT langsung tanpa tool web, domain tanpa `https://`, simulasi provider 403, HTTP route, parser frontend, respons HTML/rusak, timeout, dan jalur sukses. TypeScript serta build produksi lulus. Pengujian menggunakan respons provider simulasi, bukan panggilan berbayar ke akun pengguna. Keberhasilan AI di hosting pengguna belum diverifikasi.
 
-## Pesan untuk dukungan fal.ai
-
-Kirim melalui akun Anda ke support@fal.ai. Tidak ada pesan yang dikirim otomatis oleh paket ini.
-
-> Aplikasi Affinity saya memanggil endpoint `openrouter/router/openai/v1/chat/completions` dengan model `openai/gpt-5` menggunakan FAL_KEY server-side. Respons upstream: HTTP 403, "Policy Violation: this user has been blocked for a previous policy violation". Mohon periksa apakah pembatasan berasal dari akun fal.ai saya, koneksi OpenRouter, atau provider OpenAI yang digunakan di belakangnya, serta langkah pemulihan akses resmi. Waktu kejadian: [isi tanggal, jam, zona waktu]. Request ID: [isi jika tersedia].
-
-Jangan sertakan API key dalam pesan dukungan.
-
-Referensi resmi: [fal.ai OpenRouter API](https://fal.ai/models/openrouter/router/openai/v1/chat/completions/api), [OpenRouter server tools](https://openrouter.ai/docs/guides/features/server-tools/overview).
+Jika kelak Anda ingin mengaktifkan kembali pencarian web, hubungi fal.ai dengan bukti 403 dan request ID tanpa mengirim API key. Referensi: [fal.ai OpenRouter API](https://fal.ai/models/openrouter/router/openai/v1/chat/completions/api), [OpenRouter server tools](https://openrouter.ai/docs/guides/features/server-tools/overview).

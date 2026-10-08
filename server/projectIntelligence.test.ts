@@ -20,7 +20,7 @@ const validResponse = JSON.stringify({
   sources: [],
 });
 
-test('Project Intelligence uses GPT-5 through fal.ai with URL fetch', async () => {
+test('Project Intelligence uses a direct GPT-5 request and keeps URLs as unread references', async () => {
   let request: FalOpenRouterParams | undefined;
   const result = await analyzeProjectIntelligence({
     projectName: 'Emory',
@@ -38,10 +38,12 @@ test('Project Intelligence uses GPT-5 through fal.ai with URL fetch', async () =
   assert.equal(request?.apiKey, 'fal-test-key');
   assert.equal(request?.model, 'openai/gpt-5');
   assert.equal(request?.responseFormatJson, true);
-  assert.deepEqual(request?.tools, [{ type: 'openrouter:web_fetch' }]);
+  assert.equal(request?.tools, undefined);
+  assert.match(String(request?.messages[1].content), /do not browse, fetch, search/i);
+  assert.match(String(request?.messages[1].content), /https:\/\/www\.parklandpodomoro\.com/);
 });
 
-test('Project Intelligence enables fal/OpenRouter web search for discovery', async () => {
+test('broader concept draft also remains a direct GPT request', async () => {
   let request: FalOpenRouterParams | undefined;
   await analyzeProjectIntelligence({ projectName: 'Emory', discover: true }, {
     requester: async (params) => {
@@ -50,10 +52,8 @@ test('Project Intelligence enables fal/OpenRouter web search for discovery', asy
     },
   });
 
-  assert.deepEqual(request?.tools, [{
-    type: 'openrouter:web_search',
-    parameters: { max_results: 5, max_total_results: 10, search_context_size: 'low' },
-  }]);
+  assert.equal(request?.tools, undefined);
+  assert.match(String(request?.messages[1].content), /broader concept draft/i);
 });
 
 test('Project Intelligence reports invalid GPT JSON clearly', async () => {

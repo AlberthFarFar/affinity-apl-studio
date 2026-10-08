@@ -11,28 +11,34 @@ export interface ProjectIntelligenceOptions {
   requester?: FalRequester;
 }
 
+/**
+ * This route intentionally uses a direct GPT completion. The fal/OpenRouter
+ * server tools return 403 in the affected project flow even though direct GPT
+ * completions pass the in-app diagnostic. URLs are source references only.
+ */
 export async function analyzeProjectIntelligence(input: ProjectIntelligenceInput, options: ProjectIntelligenceOptions = {}) {
   const urls = (input.urls || []).filter((url) => /^https?:\/\//i.test(url)).slice(0, 5);
-  const query = [input.projectName, input.clusterName, input.unitType].filter(Boolean).join(' ');
-  const instruction = `Analyze the requested real-estate identity: project="${input.projectName}", cluster="${input.clusterName || 'not supplied'}", unit="${input.unitType || 'not supplied'}".\n\n${urls.length ? `Use web_fetch to inspect every supplied public URL before answering: ${urls.join(', ')}.` : ''} ${input.discover || !urls.length ? `Use web_search to discover reputable public context for: ${query}.` : 'Do not add sources beyond the supplied URLs.'}\n\nRules: never invent facts; keep FACTS explicit and source-attributable, OBSERVATIONS visual/physical, INFERENCES clearly interpretive. Favor official sources and brochures. Score project/cluster/unit matches 0-100 independently. A mismatched unit must never be structural_reference; it may only provide project/environment/style context. Reject conflicting/unreadable sources. Preserve identity anchors but do not instruct copying the exact photograph. Ignore generic marketing copy. ${schema}`;
-  const tools: unknown[] = [];
-  if (urls.length) tools.push({ type: 'openrouter:web_fetch' });
-  if (input.discover || !urls.length) {
-    tools.push({
-      type: 'openrouter:web_search',
-      parameters: { max_results: 5, max_total_results: 10, search_context_size: 'low' },
-    });
-  }
+  const sourceList = urls.length
+    ? `Provided source references (unread; never claim their contents were fetched):\n${urls.map((url) => `- ${url}`).join('\n')}`
+    : 'No source reference was supplied.';
+  const mode = input.discover
+    ? 'Create a broader concept draft from the supplied project identity only; label uncertain ideas as inferences.'
+    : 'Create a focused concept draft from the supplied project identity only.';
+  const instruction = `Analyze the requested real-estate identity: project="${input.projectName}", cluster="${input.clusterName || 'not supplied'}", unit="${input.unitType || 'not supplied'}".
+
+${mode}
+${sourceList}
+
+Rules: do not browse, fetch, search, or claim to have visited any URL. Never invent facts. Only include a FACT when it is explicitly present in the input; otherwise use OBSERVATIONS or INFERENCES and give low confidence. Include supplied URLs in sources as information_only with low confidence, unless no URLs exist. Favor a useful architectural concept from the project, cluster, and unit names. Score project/cluster/unit matches 0-100 independently. A mismatched unit must never be structural_reference. Preserve identity anchors but do not instruct copying the exact photograph. ${schema}`;
   const requester = options.requester || callGPTViaFal;
   const text = await requester({
     apiKey: options.apiKey,
     model: 'openai/gpt-5',
     responseFormatJson: true,
-    tools,
     messages: [
       {
         role: 'system',
-        content: 'You are Affinity Project Intelligence. Understand architectural and product identity, not pixel-level replication. Return only valid JSON.',
+        content: 'You are Affinity Project Intelligence. Create a research-ready property concept without browsing. Return only valid JSON.',
       },
       { role: 'user', content: instruction },
     ],

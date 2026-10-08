@@ -10,6 +10,19 @@ interface ProjectIntelligenceRouterOptions {
   apiKey?: string;
 }
 
+export function normalizeProjectUrl(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const candidate = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  try {
+    const url = new URL(candidate);
+    if (!['http:', 'https:'].includes(url.protocol) || !url.hostname.includes('.') || Boolean(url.username) || Boolean(url.password)) return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
 export function createProjectIntelligenceRouter(options: ProjectIntelligenceRouterOptions = {}) {
   const router = express.Router();
   const analyze = options.analyze || ((input) => analyzeProjectIntelligence(input, { apiKey: options.apiKey }));
@@ -23,14 +36,15 @@ export function createProjectIntelligenceRouter(options: ProjectIntelligenceRout
       return res.status(400).json({ success: false, error: 'Nama project wajib diisi sebelum dianalisis.' });
     }
 
-    const suppliedUrls = Array.isArray(urls)
-      ? urls.filter((url) => typeof url === 'string' && url.trim())
+    const rawUrls = Array.isArray(urls)
+      ? urls.filter((url): url is string => typeof url === 'string' && Boolean(url.trim()))
       : [];
-    const invalidUrl = suppliedUrls.find((url) => !/^https?:\/\//i.test(url));
+    const suppliedUrls = rawUrls.map(normalizeProjectUrl);
+    const invalidUrl = rawUrls.find((_url, index) => !suppliedUrls[index]);
     if (invalidUrl) {
       return res.status(400).json({
         success: false,
-        error: `URL tidak valid: ${invalidUrl}. Gunakan URL publik yang diawali http:// atau https://.`,
+        error: `URL tidak valid: ${invalidUrl}. Masukkan alamat domain atau URL publik yang valid.`,
       });
     }
 
@@ -39,7 +53,7 @@ export function createProjectIntelligenceRouter(options: ProjectIntelligenceRout
         projectName: projectName.trim(),
         clusterName: typeof clusterName === 'string' ? clusterName.trim() : undefined,
         unitType: typeof unitType === 'string' ? unitType.trim() : undefined,
-        urls: suppliedUrls,
+        urls: suppliedUrls.filter((url): url is string => Boolean(url)),
         discover: Boolean(discover),
       });
       return res.json({ success: true, intelligence });

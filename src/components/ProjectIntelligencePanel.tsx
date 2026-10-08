@@ -10,6 +10,11 @@ interface Props {
 
 const confidenceClass = (confidence: string) => confidence === 'high' ? 'bg-emerald-100 text-emerald-800' : confidence === 'medium' ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800';
 
+function normalizeUrlForRequest(value: string): string {
+  const trimmed = value.trim();
+  return trimmed && !/^https?:\/\//i.test(trimmed) ? `https://${trimmed}` : trimmed;
+}
+
 export function ProjectIntelligencePanel({ projectName, onApply }: Props) {
   const [clusterName, setClusterName] = useState('');
   const [unitType, setUnitType] = useState('');
@@ -23,12 +28,12 @@ export function ProjectIntelligencePanel({ projectName, onApply }: Props) {
   const analyze = async (discover: boolean) => {
     setErrorCode(undefined); setRequestId(undefined);
     if (!projectName.trim()) { setError('Isi Nama Proyek terlebih dahulu.'); return; }
-    setError(null); setResult(null); setStatus(discover ? 'Searching sources' : 'Reading project information');
+    setError(null); setResult(null); setStatus(discover ? 'Building a broader concept draft' : 'Reading project information');
     try {
       setStatus('Matching project, cluster, and unit');
       const response = await fetch('/api/project-intelligence/analyze', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectName, clusterName, unitType, urls: urls.filter(Boolean), discover }),
+        body: JSON.stringify({ projectName, clusterName, unitType, urls: urls.filter(Boolean).map(normalizeUrlForRequest), discover }),
       });
       const json = await readProjectIntelligenceResponse(response);
       setStatus('Building Visual DNA');
@@ -45,7 +50,7 @@ export function ProjectIntelligencePanel({ projectName, onApply }: Props) {
   return <section className="bg-white rounded-2xl shadow-xs border border-slate-200/90 p-5 sm:p-7">
     <div className="flex items-start gap-3 border-b border-slate-100 pb-4 mb-4">
       <div className="p-2 rounded-xl bg-violet-50 text-violet-700"><Sparkles className="w-5 h-5" /></div>
-      <div><h2 className="text-base sm:text-lg font-bold text-slate-900">Auto-isi Konsep dengan AI</h2><p className="text-xs text-slate-500 mt-1">AI Link membaca sumber publik; AI Discover mencari konteks project. Hasil tidak akan menimpa data sebelum Anda menerapkannya.</p></div>
+      <div><h2 className="text-base sm:text-lg font-bold text-slate-900">Auto-isi Konsep dengan AI</h2><p className="text-xs text-slate-500 mt-1">AI menyusun draft dari nama proyek, cluster, tipe unit, dan tautan rujukan. Tautan tidak dibuka otomatis; tinjau fakta sebelum menerapkan hasil.</p></div>
     </div>
     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
       <label className="text-xs font-semibold text-slate-700">Cluster<input value={clusterName} onChange={(e) => setClusterName(e.target.value)} placeholder="Cth: Cluster Akasia" className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" /></label>
@@ -58,7 +63,7 @@ export function ProjectIntelligencePanel({ projectName, onApply }: Props) {
     </div>
     <div className="flex flex-wrap gap-2 mt-4">
       <button onClick={() => analyze(false)} disabled={!!status && status !== 'Ready'} className="px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:bg-slate-200 text-white text-sm font-bold flex items-center gap-2"><Link2 className="w-4 h-4" /> Analisis Project dengan AI</button>
-      <button onClick={() => analyze(true)} disabled={!!status && status !== 'Ready'} className="px-4 py-2 rounded-xl border border-violet-200 text-violet-700 hover:bg-violet-50 disabled:text-slate-400 text-sm font-bold flex items-center gap-2"><Search className="w-4 h-4" /> Cari Project di Internet</button>
+      <button onClick={() => analyze(true)} disabled={!!status && status !== 'Ready'} className="px-4 py-2 rounded-xl border border-violet-200 text-violet-700 hover:bg-violet-50 disabled:text-slate-400 text-sm font-bold flex items-center gap-2"><Search className="w-4 h-4" /> Buat Draft Konsep</button>
       {status && <span className="text-xs text-slate-500 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> {status}</span>}
     </div>
     {error && <div role="alert" className="mt-4 text-xs rounded-lg bg-rose-50 text-rose-700 p-3">

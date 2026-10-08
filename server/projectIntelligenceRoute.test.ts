@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import test from 'node:test';
 import express from 'express';
-import { createProjectIntelligenceRouter } from './projectIntelligenceRoute.ts';
+import { createProjectIntelligenceRouter, normalizeProjectUrl } from './projectIntelligenceRoute.ts';
 import { analyzeProjectIntelligence } from './projectIntelligence.ts';
 import { readProjectIntelligenceResponse, ProjectIntelligenceApiError } from '../src/utils/projectIntelligenceApi.ts';
 
@@ -49,6 +49,23 @@ test('Project Intelligence API returns JSON and normalized input', async () => {
   assert.equal(received.projectName, 'Emory');
   assert.equal(received.clusterName, 'North');
   assert.equal(received.discover, true);
+});
+
+test('Project Intelligence accepts a domain without a scheme and rejects unsafe URL credentials', async () => {
+  assert.equal(normalizeProjectUrl('www.parklandpodomoro.com'), 'https://www.parklandpodomoro.com/');
+  assert.equal(normalizeProjectUrl(' https://example.com/project '), 'https://example.com/project');
+  assert.equal(normalizeProjectUrl('https://user:password@example.com'), null);
+  assert.equal(normalizeProjectUrl('not a website'), null);
+
+  let received: any;
+  await withApi(async (input) => { received = input; return {}; }, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/project-intelligence/analyze`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectName: 'Emory', urls: ['www.parklandpodomoro.com'] }),
+    });
+    assert.equal(response.status, 200);
+  });
+  assert.deepEqual(received.urls, ['https://www.parklandpodomoro.com/']);
 });
 
 test('upstream policy block reaches the browser as 403, not generic JSON or URL error', async () => {
@@ -110,7 +127,7 @@ test('Project Intelligence API never returns HTML for validation failures', asyn
     const invalidUrl = await fetch(`${baseUrl}/api/project-intelligence/analyze`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projectName: 'Emory', urls: ['example.com'] }),
+      body: JSON.stringify({ projectName: 'Emory', urls: ['not a website'] }),
     });
     assert.equal(invalidUrl.status, 400);
     assert.match(invalidUrl.headers.get('content-type') || '', /application\/json/);
