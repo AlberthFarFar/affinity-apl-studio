@@ -45,7 +45,7 @@ export function createProjectIntelligenceRouter(options: ProjectIntelligenceRout
       return res.json({ success: true, intelligence });
     } catch (err: unknown) {
       const error = describeAIError(err);
-      console.error('Project Intelligence failed:', { code: error.code, status: error.status, requestId: error.requestId });
+      console.info('Project Intelligence failed:', { code: error.code, status: error.status, requestId: error.requestId });
       return res.status(error.status).json({
         success: false, error: error.message, code: error.code,
         retryable: error.retryable, requestId: error.requestId,

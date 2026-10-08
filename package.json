@@ -12,6 +12,7 @@
     "preview": "node dist/server.js",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
+    "test": "npm run test:project-intelligence && npm run test:visual-style-lab",
     "test:project-intelligence": "tsx --test server/falOpenRouter.test.ts server/projectIntelligence.test.ts server/projectIntelligenceRoute.test.ts server/diagnostics.test.ts src/utils/projectIntelligenceApi.test.ts",
     "test:visual-style-lab": "tsx --test server/visualStyleLab/visualStyleLab.test.ts"
   },
