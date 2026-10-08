@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { callGPTViaFal } from './falOpenRouter.ts';
+import { AIServiceError } from './aiErrors.ts';
 
 test('fal OpenRouter request sends GPT model, JSON mode, tools, and server-side key', async () => {
   const originalFetch = globalThis.fetch;
@@ -33,6 +34,70 @@ test('fal OpenRouter request sends GPT model, JSON mode, tools, and server-side 
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test('access, credit, and rate-limit errors are never automatically retried or leaked', async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    for (const [status, code, detail] of [
+      [401, 'AI_AUTH_ERROR', 'Invalid credentials secret-key'],
+      [402, 'AI_INSUFFICIENT_CREDITS', 'No credits secret-key'],
+      [403, 'AI_PROVIDER_POLICY_BLOCKED', 'Policy Violation: this user has been blocked for a previous policy violation. secret-key'],
+      [403, 'AI_PROVIDER_FORBIDDEN', 'Forbidden secret-key'],
+      [429, 'AI_RATE_LIMIT', 'Rate limit secret-key'],
+    ] as const) {
+      let calls = 0;
+      globalThis.fetch = async () => {
+        calls++;
+        return new Response(JSON.stringify({ detail }), { status, headers: { 'x-fal-request-id': 'req-123' } });
+      };
+      await assert.rejects(callGPTViaFal({ apiKey: 'secret-key', messages: [] }), (error: unknown) => {
+        assert.ok(error instanceof AIServiceError);
+        assert.equal(error.status, status);
+        assert.equal(error.code, code);
+        assert.equal(error.requestId, 'req-123');
+        assert.doesNotMatch(error.message, /secret-key/);
+        return true;
+      });
+      assert.equal(calls, 1);
+    }
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('temporary upstream failure can recover with one retry', async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async (_url, init) => {
+    assert.ok(init?.signal);
+    return ++calls === 1
+      ? new Response('<html>gateway failure</html>', { status: 503 })
+      : Response.json({ choices: [{ message: { content: 'recovered' } }] });
+  };
+  try {
+    assert.equal(await callGPTViaFal({ apiKey: 'test', messages: [] }), 'recovered');
+    assert.equal(calls, 2);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('embedded provider errors, HTML responses, and timeouts remain distinct', async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    for (const [reply, code] of [
+      [() => Response.json({ error: { code: 403, message: 'Policy Violation' } }), 'AI_PROVIDER_POLICY_BLOCKED'],
+      [() => new Response('<html>Forbidden</html>', { status: 403 }), 'AI_PROVIDER_FORBIDDEN'],
+      [() => new Response('<html>app shell</html>'), 'AI_INVALID_RESPONSE'],
+      [() => { throw new DOMException('Timed out', 'TimeoutError'); }, 'AI_TIMEOUT'],
+    ] as const) {
+      let calls = 0;
+      globalThis.fetch = async () => { calls++; return reply(); };
+      await assert.rejects(callGPTViaFal({ apiKey: 'test', messages: [] }), (error: unknown) => {
+        assert.ok(error instanceof AIServiceError);
+        assert.equal(error.code, code);
+        return true;
+      });
+      assert.equal(calls, 1);
+    }
+  } finally { globalThis.fetch = originalFetch; }
 });
 
 test('fal OpenRouter requires FAL_KEY', async () => {

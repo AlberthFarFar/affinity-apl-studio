@@ -1,4 +1,5 @@
 import express from 'express';
+import { describeAIError } from './aiErrors.ts';
 import { analyzeProjectIntelligence } from './projectIntelligence.ts';
 import type { ProjectIntelligenceInput } from '../src/types/projectIntelligence.ts';
 
@@ -42,15 +43,13 @@ export function createProjectIntelligenceRouter(options: ProjectIntelligenceRout
         discover: Boolean(discover),
       });
       return res.json({ success: true, intelligence });
-    } catch (err: any) {
-      console.error('Error analyzing project intelligence:', err);
-      const message = String(err?.message || 'Gagal menganalisis Project Intelligence.');
-      const userMessage = message.includes('FAL_KEY')
-        ? message
-        : message.includes('JSON')
-          ? 'Analisis selesai tetapi format respons AI tidak valid. Silakan coba kembali atau gunakan link resmi lain.'
-          : 'Project belum dapat dianalisis. Periksa apakah URL bersifat publik, lalu coba kembali.';
-      return res.status(502).json({ success: false, error: userMessage, detail: message });
+    } catch (err: unknown) {
+      const error = describeAIError(err);
+      console.error('Project Intelligence failed:', { code: error.code, status: error.status, requestId: error.requestId });
+      return res.status(error.status).json({
+        success: false, error: error.message, code: error.code,
+        retryable: error.retryable, requestId: error.requestId,
+      });
     }
   });
 

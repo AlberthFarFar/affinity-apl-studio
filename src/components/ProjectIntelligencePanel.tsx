@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { CheckCircle, Link2, Loader2, Search, Sparkles, XCircle } from 'lucide-react';
 import type { ProjectIntelligence } from '../types/projectIntelligence';
+import { ProjectIntelligenceApiError, readProjectIntelligenceResponse } from '../utils/projectIntelligenceApi';
 
 interface Props {
   projectName: string;
@@ -9,18 +10,6 @@ interface Props {
 
 const confidenceClass = (confidence: string) => confidence === 'high' ? 'bg-emerald-100 text-emerald-800' : confidence === 'medium' ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800';
 
-async function readApiResponse(response: Response) {
-  const contentType = response.headers.get('content-type') || '';
-  if (!contentType.toLowerCase().includes('application/json')) {
-    throw new Error(
-      response.status === 404
-        ? 'Layanan Project Intelligence belum tersedia. Jalankan Affinity melalui server aplikasi, bukan sebagai situs statis.'
-        : 'Server mengembalikan respons yang tidak valid. Muat ulang aplikasi lalu coba kembali.',
-    );
-  }
-  return response.json();
-}
-
 export function ProjectIntelligencePanel({ projectName, onApply }: Props) {
   const [clusterName, setClusterName] = useState('');
   const [unitType, setUnitType] = useState('');
@@ -28,8 +17,11 @@ export function ProjectIntelligencePanel({ projectName, onApply }: Props) {
   const [status, setStatus] = useState<string | null>(null);
   const [result, setResult] = useState<ProjectIntelligence | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | undefined>();
+  const [requestId, setRequestId] = useState<string | undefined>();
 
   const analyze = async (discover: boolean) => {
+    setErrorCode(undefined); setRequestId(undefined);
     if (!projectName.trim()) { setError('Isi Nama Proyek terlebih dahulu.'); return; }
     setError(null); setResult(null); setStatus(discover ? 'Searching sources' : 'Reading project information');
     try {
@@ -38,13 +30,15 @@ export function ProjectIntelligencePanel({ projectName, onApply }: Props) {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ projectName, clusterName, unitType, urls: urls.filter(Boolean), discover }),
       });
-      const json = await readApiResponse(response);
-      if (!response.ok || !json.success) throw new Error(json.error || 'Analisis Project Intelligence gagal.');
+      const json = await readProjectIntelligenceResponse(response);
       setStatus('Building Visual DNA');
       setResult(json.intelligence);
       setStatus('Ready');
     } catch (err: any) {
       setStatus(null); setError(err?.message || 'Project belum dapat dianalisis.');
+      if (err instanceof ProjectIntelligenceApiError) {
+        setErrorCode(err.code); setRequestId(err.requestId);
+      }
     }
   };
 
@@ -67,7 +61,11 @@ export function ProjectIntelligencePanel({ projectName, onApply }: Props) {
       <button onClick={() => analyze(true)} disabled={!!status && status !== 'Ready'} className="px-4 py-2 rounded-xl border border-violet-200 text-violet-700 hover:bg-violet-50 disabled:text-slate-400 text-sm font-bold flex items-center gap-2"><Search className="w-4 h-4" /> Cari Project di Internet</button>
       {status && <span className="text-xs text-slate-500 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> {status}</span>}
     </div>
-    {error && <p className="mt-4 text-xs rounded-lg bg-rose-50 text-rose-700 p-3"><XCircle className="w-4 h-4 inline mr-1" />{error}</p>}
+    {error && <div role="alert" className="mt-4 text-xs rounded-lg bg-rose-50 text-rose-700 p-3">
+      <p><XCircle className="w-4 h-4 inline mr-1" />{error}</p>
+      {requestId && <p className="mt-2">ID permintaan untuk dukungan: {requestId}</p>}
+      {['AI_PROVIDER_POLICY_BLOCKED', 'AI_PROVIDER_FORBIDDEN'].includes(errorCode || '') && <a href="mailto:support@fal.ai" className="inline-block mt-2 underline font-semibold">Hubungi dukungan fal.ai</a>}
+    </div>}
     {result && <div className="mt-5 rounded-xl border border-teal-200 bg-teal-50/40 p-4 text-sm">
       <div className="flex flex-wrap items-center gap-2"><CheckCircle className="w-5 h-5 text-teal-600" /><strong>Project Intelligence siap ditinjau</strong><span className={`uppercase text-[10px] font-bold px-2 py-0.5 rounded-full ${confidenceClass(result.identityMatch.confidence)}`}>Confidence: {result.identityMatch.confidence}</span></div>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-3 text-xs"><span>Project matched: {result.identityMatch.projectMatch}%</span><span>Cluster matched: {result.identityMatch.clusterMatch ?? '—'}{typeof result.identityMatch.clusterMatch === 'number' ? '%' : ''}</span><span>Unit matched: {result.identityMatch.unitMatch ?? '—'}{typeof result.identityMatch.unitMatch === 'number' ? '%' : ''}</span></div>

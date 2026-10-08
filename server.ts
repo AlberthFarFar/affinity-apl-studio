@@ -13,6 +13,7 @@ import {
 } from './server/diagnostics.ts';
 import { createProjectIntelligenceRouter } from './server/projectIntelligenceRoute.ts';
 import { callGPTViaFal } from './server/falOpenRouter.ts';
+import { AIServiceError } from './server/aiErrors.ts';
 import { createVisualStyleLabRouter, resolveVisualStyleLabFlags } from './server/visualStyleLab/routes.ts';
 import type { FalRunner } from './server/visualStyleLab/types.ts';
 
@@ -30,6 +31,9 @@ if (falKey) {
 // Helper: Error Classification
 // -------------------------------------------------------------
 function classifyFalError(error: any): { code: string; message: string; userMessage: string } {
+  if (error instanceof AIServiceError) {
+    return { code: error.code, message: error.message, userMessage: error.message };
+  }
   const rawMsg = error?.message || error?.detail || (typeof error === 'string' ? error : JSON.stringify(error)) || '';
   const str = rawMsg.toLowerCase();
 
@@ -199,7 +203,12 @@ async function startServer() {
     try {
       const openRouterDiag = await testOpenRouterConnectivity();
       if (!openRouterDiag.accessible) {
-        return res.status(openRouterDiag.code === 'AUTH_ERROR' ? 401 : 500).json({
+        const statuses: Record<string, number> = {
+          AI_AUTH_ERROR: 401, AI_INSUFFICIENT_CREDITS: 402,
+          AI_PROVIDER_POLICY_BLOCKED: 403, AI_PROVIDER_FORBIDDEN: 403,
+          AI_RATE_LIMIT: 429, AI_TIMEOUT: 504,
+        };
+        return res.status(statuses[openRouterDiag.code || ''] || 503).json({
           success: false,
           connected: false,
           code: openRouterDiag.code || 'COMMUNICATION_FAILED',
