@@ -11,9 +11,7 @@ import {
   testAnalyzeMasterCommunication,
   runFalPipelineDiagnostics,
 } from './server/diagnostics.ts';
-import { createProjectIntelligenceRouter } from './server/projectIntelligenceRoute.ts';
-import { callGPTViaFal } from './server/falOpenRouter.ts';
-import { AIServiceError } from './server/aiErrors.ts';
+import { analyzeProjectIntelligence } from './server/projectIntelligence.ts';
 import { createVisualStyleLabRouter, resolveVisualStyleLabFlags } from './server/visualStyleLab/routes.ts';
 import type { FalRunner } from './server/visualStyleLab/types.ts';
 
@@ -31,9 +29,6 @@ if (falKey) {
 // Helper: Error Classification
 // -------------------------------------------------------------
 function classifyFalError(error: any): { code: string; message: string; userMessage: string } {
-  if (error instanceof AIServiceError) {
-    return { code: error.code, message: error.message, userMessage: error.message };
-  }
   const rawMsg = error?.message || error?.detail || (typeof error === 'string' ? error : JSON.stringify(error)) || '';
   const str = rawMsg.toLowerCase();
 
@@ -80,6 +75,62 @@ function classifyFalError(error: any): { code: string; message: string; userMess
 }
 
 // -------------------------------------------------------------
+// Helper: GPT Reasoning via fal OpenRouter
+// -------------------------------------------------------------
+async function callGPTViaFal(params: {
+  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string | any[] }>;
+  model?: string;
+  responseFormatJson?: boolean;
+}): Promise<string> {
+  const currentKey = (process.env.FAL_KEY || '').trim();
+  if (!currentKey) {
+    throw new Error('FAL_KEY belum dikonfigurasi di server environment / Secrets.');
+  }
+
+  const model = params.model || 'openai/gpt-5';
+  const url = 'https://fal.run/openrouter/router/openai/v1/chat/completions';
+
+  let lastError: any = null;
+  // Maximum 1 retry as required
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Key ${currentKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model,
+          messages: params.messages,
+          response_format: params.responseFormatJson ? { type: 'json_object' } : undefined,
+        }),
+      });
+
+      if (!response.ok) {
+        const errJson = await response.json().catch(() => null);
+        const detail = errJson?.detail || errJson?.error?.message || response.statusText;
+        throw new Error(`HTTP ${response.status}: ${detail}`);
+      }
+
+      const data = await response.json();
+      const content = data.choices?.[0]?.message?.content;
+      if (content) {
+        return content;
+      }
+      throw new Error('Respons GPT tidak mengandung konten teks yang valid.');
+    } catch (err: any) {
+      lastError = err;
+      if (attempt === 0) {
+        await new Promise((r) => setTimeout(r, 1200));
+      }
+    }
+  }
+
+  throw lastError;
+}
+
+// -------------------------------------------------------------
 // Helper: Upload base64 image to fal.storage
 // -------------------------------------------------------------
 async function uploadToFalStorage(imageData: string): Promise<string> {
@@ -119,8 +170,6 @@ async function startServer() {
 
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-
-  app.use('/api/project-intelligence', createProjectIntelligenceRouter());
 
   // Isolated development/test lab. All billable routes are separately gated
   // server-side and remain unavailable in production because this app has no auth.
@@ -181,6 +230,40 @@ async function startServer() {
     res.json(diagnostic);
   });
 
+  // Project Intelligence stays server-side so Gemini credentials never reach the browser.
+  // Gemini URL Context / Google Search are used opportunistically by the SDK and degrade
+  // to a clear user-facing error when the configured model/account cannot access them.
+  app.post('/api/project-intelligence/analyze', async (req, res) => {
+    const { projectName, clusterName, unitType, urls, discover } = req.body || {};
+    if (typeof projectName !== 'string' || !projectName.trim()) {
+      return res.status(400).json({ success: false, error: 'Nama project wajib diisi sebelum dianalisis.' });
+    }
+    const suppliedUrls = Array.isArray(urls) ? urls.filter((url) => typeof url === 'string' && url.trim()) : [];
+    const invalidUrl = suppliedUrls.find((url) => !/^https?:\/\//i.test(url));
+    if (invalidUrl) {
+      return res.status(400).json({ success: false, error: `URL tidak valid: ${invalidUrl}. Gunakan URL publik yang diawali http:// atau https://.` });
+    }
+    try {
+      const intelligence = await analyzeProjectIntelligence({
+        projectName: projectName.trim(),
+        clusterName: typeof clusterName === 'string' ? clusterName.trim() : undefined,
+        unitType: typeof unitType === 'string' ? unitType.trim() : undefined,
+        urls: suppliedUrls,
+        discover: Boolean(discover),
+      });
+      res.json({ success: true, intelligence });
+    } catch (err: any) {
+      console.error('Error analyzing project intelligence:', err);
+      const message = String(err?.message || 'Gagal menganalisis Project Intelligence.');
+      const userMessage = message.includes('GEMINI_API_KEY')
+        ? message
+        : message.includes('JSON')
+          ? 'Analisis selesai tetapi format respons AI tidak valid. Silakan coba kembali atau gunakan link resmi lain.'
+          : 'Project belum dapat dianalisis. Periksa apakah URL bersifat publik, lalu coba kembali.';
+      res.status(502).json({ success: false, error: userMessage, detail: message });
+    }
+  });
+
   // 2c. Full pipeline diagnostic battery
   app.get('/api/diagnostics', async (req, res) => {
     const report = await runFalPipelineDiagnostics();
@@ -203,12 +286,7 @@ async function startServer() {
     try {
       const openRouterDiag = await testOpenRouterConnectivity();
       if (!openRouterDiag.accessible) {
-        const statuses: Record<string, number> = {
-          AI_AUTH_ERROR: 401, AI_INSUFFICIENT_CREDITS: 402,
-          AI_PROVIDER_POLICY_BLOCKED: 403, AI_PROVIDER_FORBIDDEN: 403,
-          AI_RATE_LIMIT: 429, AI_TIMEOUT: 504,
-        };
-        return res.status(statuses[openRouterDiag.code || ''] || 503).json({
+        return res.status(openRouterDiag.code === 'AUTH_ERROR' ? 401 : 500).json({
           success: false,
           connected: false,
           code: openRouterDiag.code || 'COMMUNICATION_FAILED',
@@ -1314,8 +1392,7 @@ Keluarkan HANYA JSON tanpa pengantar.`;
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
+    app.use(express.static(path.join(__dirname, 'dist')));
     app.get('/visual-style-test-lab', (_req, res, next) => {
       if (!resolveVisualStyleLabFlags().labEnabled) {
         return res.status(404).send('Visual Style Testing Lab is disabled.');
@@ -1323,11 +1400,11 @@ Keluarkan HANYA JSON tanpa pengantar.`;
       next();
     });
     app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+      res.sendFile(path.join(__dirname, 'dist', 'index.html'));
     });
   }
 
-  app.listen(port, '0.0.0.0', () => {
+  app.listen(port, () => {
     console.log(`[Affinity] Server running on port ${port} with Unified fal.ai Pipeline`);
   });
 }

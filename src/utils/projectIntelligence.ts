@@ -1,4 +1,4 @@
-import type { ConfidenceLevel, ProjectIntelligence, ProjectSource } from '../types/projectIntelligence.ts';
+import type { ConfidenceLevel, ProjectIntelligence, ProjectSource } from '../types/projectIntelligence';
 
 const SOURCE_WEIGHT: Record<ProjectSource['sourceType'], number> = {
   official: 6, brochure: 5, 'official-social': 4, news: 3, 'property-portal': 2, secondary: 1, unknown: 0,
@@ -36,7 +36,7 @@ export function buildConciseGenerationContext(intelligence: Pick<ProjectIntellig
   ].filter(Boolean).join('\n\n').slice(0, 3200);
 }
 
-export function sanitizeProjectIntelligence(raw: any, input: { projectName?: string; clusterName?: string; unitType?: string }): ProjectIntelligence {
+export function sanitizeProjectIntelligence(raw: any, input: { projectName: string; clusterName?: string; unitType?: string }): ProjectIntelligence {
   const identity = raw?.identityMatch || {};
   const projectMatch = Math.max(0, Math.min(100, Number(identity.projectMatch) || 0));
   const clusterMatch = input.clusterName ? Math.max(0, Math.min(100, Number(identity.clusterMatch) || 0)) : undefined;
@@ -49,7 +49,7 @@ export function sanitizeProjectIntelligence(raw: any, input: { projectName?: str
     usageRole: ['structural_reference', 'visual_style_reference', 'environment_reference', 'brand_reference', 'information_only', 'rejected'].includes(source.usageRole) ? source.usageRole : 'information_only',
   })));
   const result: ProjectIntelligence = {
-    project: { name: raw?.project?.name || input.projectName || '', developer: raw?.project?.developer, cluster: raw?.project?.cluster || input.clusterName, unitType: raw?.project?.unitType || input.unitType, propertyType: raw?.project?.propertyType },
+    project: { name: raw?.project?.name || input.projectName, developer: raw?.project?.developer, cluster: raw?.project?.cluster || input.clusterName, unitType: raw?.project?.unitType || input.unitType, propertyType: raw?.project?.propertyType },
     identityMatch: { projectMatch, clusterMatch, unitMatch, confidence: confidenceFromMatches(projectMatch, clusterMatch, unitMatch) },
     facts: (Array.isArray(raw?.facts) ? raw.facts : []).filter((fact: any) => typeof fact?.statement === 'string').slice(0, 12),
     visualDNA: {

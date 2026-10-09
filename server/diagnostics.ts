@@ -5,9 +5,6 @@
 // Only safe redacted metadata (e.g. key accessibility, length, masked indicator)
 // is returned to callers.
 
-import { callGPTViaFal } from './falOpenRouter.ts';
-import { describeAIError } from './aiErrors.ts';
-
 export interface FalKeyDiagnostic {
   accessible: boolean;
   configured: boolean;
@@ -91,8 +88,42 @@ export function verifyFalKeyAccessibility(): FalKeyDiagnostic {
  * Helper to classify HTTP / Fal errors safely without leaking headers
  */
 function classifyError(error: any): { code: string; message: string; userMessage: string } {
-  const classified = describeAIError(error);
-  return { code: classified.code, message: classified.message, userMessage: classified.message };
+  const rawMsg = error?.message || error?.detail || (typeof error === 'string' ? error : JSON.stringify(error)) || '';
+  const str = rawMsg.toLowerCase();
+
+  if (str.includes('401') || str.includes('unauthorized') || str.includes('invalid credentials') || str.includes('authentication is required')) {
+    return {
+      code: 'AUTH_ERROR',
+      message: rawMsg,
+      userMessage: 'Kunci FAL_KEY ditolak oleh fal.ai (401 Unauthorized). Periksa nilai key di Secrets panel.',
+    };
+  }
+  if (str.includes('credit') || str.includes('balance') || str.includes('payment') || str.includes('402')) {
+    return {
+      code: 'INSUFFICIENT_CREDITS',
+      message: rawMsg,
+      userMessage: 'Saldo / kredit akun fal.ai tidak mencukupi.',
+    };
+  }
+  if (str.includes('rate') || str.includes('429')) {
+    return {
+      code: 'RATE_LIMIT',
+      message: rawMsg,
+      userMessage: 'Batas kuota frekuensi permintaan (429 Rate Limit) tercapai pada fal.ai.',
+    };
+  }
+  if (str.includes('busy') || str.includes('503') || str.includes('unavailable')) {
+    return {
+      code: 'MODEL_UNAVAILABLE',
+      message: rawMsg,
+      userMessage: 'Model fal.ai sedang sibuk atau tidak tersedia sementara waktu.',
+    };
+  }
+  return {
+    code: 'COMMUNICATION_FAILED',
+    message: rawMsg,
+    userMessage: 'Terjadi kendala saat berkomunikasi dengan endpoint fal.ai OpenRouter.',
+  };
 }
 
 /**
@@ -111,21 +142,59 @@ export async function testOpenRouterConnectivity(): Promise<OpenRouterDiagnostic
     };
   }
 
+  const currentKey = (process.env.FAL_KEY || '').trim();
   const endpoint = 'https://fal.run/openrouter/router/openai/v1/chat/completions';
   const model = 'openai/gpt-5';
 
   const startTime = Date.now();
   try {
-    await callGPTViaFal({
-      model,
-      messages: [
-        { role: 'system', content: 'You are a connectivity probe. Respond with JSON: {"probe": "healthy"}' },
-        { role: 'user', content: 'Respond with JSON {"probe": "healthy"}' },
-      ],
-      responseFormatJson: true,
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Key ${currentKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: 'You are a connectivity probe. Respond with JSON: {"probe": "healthy"}' },
+          { role: 'user', content: 'Respond with JSON {"probe": "healthy"}' },
+        ],
+        response_format: { type: 'json_object' },
+      }),
     });
 
     const latencyMs = Date.now() - startTime;
+
+    if (!response.ok) {
+      const errJson = await response.json().catch(() => null);
+      const detail = errJson?.detail || errJson?.error?.message || response.statusText;
+      const classified = classifyError(new Error(`HTTP ${response.status}: ${detail}`));
+      return {
+        tested: true,
+        accessible: false,
+        model,
+        endpoint,
+        latencyMs,
+        code: classified.code,
+        message: classified.userMessage,
+        error: classified.message,
+      };
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) {
+      return {
+        tested: true,
+        accessible: false,
+        model,
+        endpoint,
+        latencyMs,
+        code: 'EMPTY_RESPONSE',
+        message: 'Endpoint merespons tetapi tidak mengandung payload teks yang valid.',
+      };
+    }
 
     return {
       tested: true,
@@ -168,6 +237,8 @@ export async function testAnalyzeMasterCommunication(): Promise<AnalyzeMasterDia
     };
   }
 
+  const currentKey = (process.env.FAL_KEY || '').trim();
+  const endpoint = 'https://fal.run/openrouter/router/openai/v1/chat/completions';
   const model = 'openai/gpt-5';
 
   const diagnosticPrompt = `Anda adalah Architectural Director & Real Estate Campaign Strategist.
@@ -196,16 +267,53 @@ Keluarkan HANYA JSON tanpa teks pengantar.`;
 
   const startTime = Date.now();
   try {
-    const content = await callGPTViaFal({
-      model,
-      messages: [
-        { role: 'system', content: 'You are an architectural evaluator for real estate master properties. Output only structured JSON.' },
-        { role: 'user', content: diagnosticPrompt },
-      ],
-      responseFormatJson: true,
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Key ${currentKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: 'You are an architectural evaluator for real estate master properties. Output only structured JSON.' },
+          { role: 'user', content: diagnosticPrompt },
+        ],
+        response_format: { type: 'json_object' },
+      }),
     });
 
     const latencyMs = Date.now() - startTime;
+
+    if (!response.ok) {
+      const errJson = await response.json().catch(() => null);
+      const detail = errJson?.detail || errJson?.error?.message || response.statusText;
+      const classified = classifyError(new Error(`HTTP ${response.status}: ${detail}`));
+      return {
+        tested: true,
+        passed: false,
+        schemaValid: false,
+        fieldsVerified: [],
+        latencyMs,
+        code: classified.code,
+        message: classified.userMessage,
+        error: classified.message,
+      };
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) {
+      return {
+        tested: true,
+        passed: false,
+        schemaValid: false,
+        fieldsVerified: [],
+        latencyMs,
+        code: 'EMPTY_CONTENT',
+        message: 'Respons GPT-5 via fal OpenRouter kosong.',
+      };
+    }
 
     let parsed: any;
     try {

@@ -10,7 +10,6 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test:project-intelligence": "tsx --test server/projectIntelligenceRoute.test.ts server/projectIntelligence.test.ts src/utils/projectAutofill.test.ts",
     "test:visual-style-lab": "tsx --test server/visualStyleLab/visualStyleLab.test.ts"
   },
   "dependencies": {

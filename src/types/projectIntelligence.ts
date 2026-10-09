@@ -1,22 +1,11 @@
 export type ConfidenceLevel = 'high' | 'medium' | 'low';
 
 export interface ProjectIntelligenceInput {
-  projectName?: string;
+  projectName: string;
   clusterName?: string;
   unitType?: string;
   urls?: string[];
   discover?: boolean;
-}
-
-export interface PropertyAutofill {
-  name?: string;
-  type?: string;
-  price?: string;
-  location?: string;
-  features?: string;
-  developer?: string;
-  contactPhone?: string;
-  website?: string;
 }
 
 export interface ProjectFact {
@@ -34,12 +23,9 @@ export interface ProjectSource {
   projectMatch?: number;
   clusterMatch?: number;
   unitMatch?: number;
-  fetchedAt?: string;
-  evidence?: string[];
 }
 
 export interface ProjectIntelligence {
-  autofill?: PropertyAutofill;
   project: {
     name: string;
     developer?: string;
